@@ -171,6 +171,21 @@ class DailyHealthData(BaseModel):
         description="睡眠分数（0-100），例如 81"
     )
 
+    @field_validator(
+        'steps', 'distance_km', 'exercise_minutes', 'heart_rate_min',
+        'heart_rate_max', 'resting_heart_rate', 'spo2_min', 'spo2_max',
+        'sleep_hours', 'sleep_score', 'sleep_start', 'sleep_end',
+        mode='before'
+    )
+    @classmethod
+    def clean_none_strings(cls, v):
+        """将大模型输出的 'None' 或 'null' 字符串自动转为真正的 None 对象"""
+        if isinstance(v, str):
+            val = v.strip().lower()
+            if val in ('none', 'null', 'nan', '', 'undefined'):
+                return None
+        return v
+
     @field_validator('date')
     @classmethod
     def validate_date_format(cls, v: str) -> str:

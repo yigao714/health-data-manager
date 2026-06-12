@@ -820,10 +820,16 @@ async function handleFiles(files) {
     for (const file of files) {
         const card = document.createElement('div');
         card.className = 'card';
+        const objectUrl = URL.createObjectURL(file);
         card.innerHTML = `
-            <div class="card-title">📷 ${file.name}</div>
-            <div style="display:flex;align-items:center;gap:8px;color:var(--text2);">
-                <span class="spinner"></span> AI 正在识别中...（提取 + 复核验证）
+            <div class="card-title" style="margin-bottom:12px;">📷 ${file.name}</div>
+            <div style="display:flex; gap:16px; align-items:flex-start;">
+                <img src="${objectUrl}" style="max-height: 100px; max-width: 100px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); cursor: pointer;" onclick="window.open('${objectUrl}', '_blank')" title="点击查看大图">
+                <div style="flex: 1;">
+                    <div style="display:flex;align-items:center;gap:8px;color:var(--text2);">
+                        <span class="spinner"></span> AI 正在识别中...（提取 + 复核验证）
+                    </div>
+                </div>
             </div>`;
         resultsDiv.prepend(card);
 
@@ -835,10 +841,15 @@ async function handleFiles(files) {
             const data = await resp.json();
             if (data.error) {
                 card.innerHTML = `
-                    <div class="card-title">📷 ${file.name} <span class="status error">❌ 失败</span></div>
-                    <p style="color:var(--red)">${data.error}</p>`;
+                    <div class="card-title" style="margin-bottom:12px;">📷 ${file.name} <span class="status error">❌ 失败</span></div>
+                    <div style="display:flex; gap:16px; align-items:flex-start;">
+                        <img src="${objectUrl}" style="max-height: 100px; max-width: 100px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); cursor: pointer;" onclick="window.open('${objectUrl}', '_blank')" title="点击查看大图">
+                        <div style="flex: 1;">
+                            <p style="color:var(--red);font-size:13px;line-height:1.6;margin:0;">${data.error}</p>
+                        </div>
+                    </div>`;
             } else {
-                const needsReview = renderExtractionResult(card, file.name, data);
+                const needsReview = renderExtractionResult(card, file.name, data, objectUrl);
                 if (!needsReview) {
                     // 无异常，自动入库
                     const eid = card.querySelector('[data-eid]')?.dataset.eid;
@@ -847,14 +858,19 @@ async function handleFiles(files) {
             }
         } catch (e) {
             card.innerHTML = `
-                <div class="card-title">📷 ${file.name} <span class="status error">❌ 网络错误</span></div>
-                <p style="color:var(--red)">${e.message}</p>`;
+                <div class="card-title" style="margin-bottom:12px;">📷 ${file.name} <span class="status error">❌ 网络错误</span></div>
+                <div style="display:flex; gap:16px; align-items:flex-start;">
+                    <img src="${objectUrl}" style="max-height: 100px; max-width: 100px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); cursor: pointer;" onclick="window.open('${objectUrl}', '_blank')" title="点击查看大图">
+                    <div style="flex: 1;">
+                        <p style="color:var(--red);font-size:13px;line-height:1.6;margin:0;">${e.message}</p>
+                    </div>
+                </div>`;
         }
     }
     fileInput.value = '';
 }
 
-function renderExtractionResult(card, filename, data) {
+function renderExtractionResult(card, filename, data, objectUrl) {
     const d = data.extraction;
     const v = data.verification;
     const w = data.warnings || [];
@@ -931,11 +947,23 @@ function renderExtractionResult(card, filename, data) {
         '</div>';
     }
 
-    card.innerHTML = '<div class="card-title">' + filename + (verifyBadge ? ' ' + verifyBadge : '') + '</div>' +
-        '<div class="result-card">' +
-            '<div class="result-grid">' + fieldsHTML + '</div>' +
-            warningsHTML + noteText +
-        '</div>' + buttonsHTML;
+    let imageHTML = '';
+    if (objectUrl) {
+        imageHTML = `<img src="${objectUrl}" style="max-height: 100px; max-width: 100px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); cursor: pointer;" onclick="window.open('${objectUrl}', '_blank')" title="点击查看大图">`;
+    }
+
+    card.innerHTML = `
+        <div class="card-title" style="margin-bottom:12px;">📷 ${filename} ${verifyBadge ? verifyBadge : ''}</div>
+        <div style="display:flex; gap:16px; align-items:flex-start;">
+            ${imageHTML}
+            <div style="flex: 1; min-width: 0;">
+                <div class="result-card" style="margin: 0 0 12px 0;">
+                    <div class="result-grid">${fieldsHTML}</div>
+                    ${warningsHTML} ${noteText}
+                </div>
+                ${buttonsHTML}
+            </div>
+        </div>`;
 
     if (needsReview) {
         card.querySelector('[data-eid]').addEventListener('click', function() { doConfirm(this.dataset.eid); });
