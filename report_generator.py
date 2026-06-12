@@ -114,17 +114,23 @@ def _calc_scores(records, profile):
     thr = profile.get_thresholds()
     eff_danger = thr['spo2_danger'] - thr['spo2_precision']
     eff_warning = thr['spo2_warning'] - thr['spo2_precision']
-    spo2_danger = sum(1 for r in records if r.spo2_min is not None and r.spo2_min < eff_danger)
-    spo2_warn = sum(1 for r in records if r.spo2_min is not None and r.spo2_min < eff_warning)
-    if spo2_danger > 0:
-        spo2_text = f'{spo2_danger}天SpO2<{eff_danger}%'
-        spo2_level = '需关注'
-    elif spo2_warn > len(records) * 0.3:
-        spo2_text = f'{spo2_warn}天SpO2<{eff_warning}%'
-        spo2_level = '留意'
+    
+    has_spo2 = any(r.spo2_min is not None for r in records)
+    if not has_spo2:
+        spo2_text = '无血氧监测数据'
+        spo2_level = '未监测'
     else:
-        spo2_text = '未见低氧事件'
-        spo2_level = '正常'
+        spo2_danger = sum(1 for r in records if r.spo2_min is not None and r.spo2_min < eff_danger)
+        spo2_warn = sum(1 for r in records if r.spo2_min is not None and r.spo2_min < eff_warning)
+        if spo2_danger > 0:
+            spo2_text = f'{spo2_danger}天SpO2<{eff_danger}%'
+            spo2_level = '需关注'
+        elif spo2_warn > len(records) * 0.3:
+            spo2_text = f'{spo2_warn}天SpO2<{eff_warning}%'
+            spo2_level = '留意'
+        else:
+            spo2_text = '未见低氧事件'
+            spo2_level = '正常'
 
     return {
         'act_score': act_score, 'heart_score': heart_score,

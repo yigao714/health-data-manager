@@ -679,9 +679,9 @@ const effDangerDisplay = thresholds.spo2_danger - thresholds.spo2_precision;
 const effWarningDisplay = thresholds.spo2_warning - thresholds.spo2_precision;
 
 // ── Utility functions ──
-function avg(arr) { const f = arr.filter(v => v != null); return f.length ? f.reduce((a,b)=>a+b,0)/f.length : 0; }
-function min(arr) { const f = arr.filter(v => v != null); return f.length ? Math.min(...f) : 0; }
-function max(arr) { const f = arr.filter(v => v != null); return f.length ? Math.max(...f) : 0; }
+function avg(arr) { const f = arr.filter(v => v != null); return f.length ? f.reduce((a,b)=>a+b,0)/f.length : null; }
+function min(arr) { const f = arr.filter(v => v != null); return f.length ? Math.min(...f) : null; }
+function max(arr) { const f = arr.filter(v => v != null); return f.length ? Math.max(...f) : null; }
 function fmt(v, d=1) { return v != null ? v.toFixed(d) : '-'; }
 
 // 7日滑动均值
@@ -799,18 +799,24 @@ function calcScores() {
     // 实际触发阈值 = 标称阈值 - 精度容差
     const spo2EffDanger = thresholds.spo2_danger - thresholds.spo2_precision;
     const spo2EffWarning = thresholds.spo2_warning - thresholds.spo2_precision;
-    const spo2DangerDays = records.filter(r => r.spo2_min != null && r.spo2_min < spo2EffDanger).length;
-    const spo2WarnDays = records.filter(r => r.spo2_min != null && r.spo2_min < spo2EffWarning).length;
+    const hasSpo2Data = records.some(r => r.spo2_min != null);
     let spo2Level, spo2Text, spo2Color;
-    if (spo2DangerDays > 0) {
-        spo2Level = '需关注'; spo2Color = colors.orange;
-        spo2Text = `${spo2DangerDays}天SpO2<${spo2EffDanger}%`;
-    } else if (spo2WarnDays > records.length * 0.3) {
-        spo2Level = '留意'; spo2Color = colors.yellow;
-        spo2Text = `${spo2WarnDays}天SpO2<${spo2EffWarning}%`;
+    if (!hasSpo2Data) {
+        spo2Level = '未监测'; spo2Color = '#94a3b8';
+        spo2Text = '无血氧监测数据';
     } else {
-        spo2Level = '正常'; spo2Color = colors.green;
-        spo2Text = '未见低氧事件';
+        const spo2DangerDays = records.filter(r => r.spo2_min != null && r.spo2_min < spo2EffDanger).length;
+        const spo2WarnDays = records.filter(r => r.spo2_min != null && r.spo2_min < spo2EffWarning).length;
+        if (spo2DangerDays > 0) {
+            spo2Level = '需关注'; spo2Color = colors.orange;
+            spo2Text = `${spo2DangerDays}天SpO2<${spo2EffDanger}%`;
+        } else if (spo2WarnDays > records.length * 0.3) {
+            spo2Level = '留意'; spo2Color = colors.yellow;
+            spo2Text = `${spo2WarnDays}天SpO2<${spo2EffWarning}%`;
+        } else {
+            spo2Level = '正常'; spo2Color = colors.green;
+            spo2Text = '未见低氧事件';
+        }
     }
 
     // ── 睡眠质量 (0-100) ──
@@ -1728,6 +1734,8 @@ function renderViews(filtered, label) {
     const fS = {
         avgSteps: avg(filtered.map(r => r.steps)),
         maxSteps: max(filtered.map(r => r.steps)),
+        avgDistance: avg(filtered.map(r => r.distance_km)),
+        maxDistance: max(filtered.map(r => r.distance_km)),
         avgRestHR: avg(filtered.map(r => r.resting_heart_rate)),
         avgSpo2Min: avg(filtered.map(r => r.spo2_min)),
         avgSleep: avg(filtered.map(r => r.sleep_hours)),
@@ -1735,22 +1743,22 @@ function renderViews(filtered, label) {
     };
 
     document.getElementById('summary-cards').innerHTML = [
-        { icon: '🚶', label: '日均步数', value: Math.round(fS.avgSteps).toLocaleString(),
-          sub: `最高 ${fS.maxSteps.toLocaleString()} 步`, cls: fS.avgSteps >= 3000 ? 'trend-up' : 'trend-down' },
-        { icon: '📏', label: '日均距离', value: fmt(avg(filtered.map(r => r.distance_km))) + ' km',
-          sub: `最远 ${fmt(max(filtered.map(r => r.distance_km)))} km`, cls: 'trend-stable' },
-        { icon: '❤️', label: '平均静息心率', value: Math.round(fS.avgRestHR) + ' bpm',
-          sub: `范围 ${min(filtered.map(r=>r.resting_heart_rate))}-${max(filtered.map(r=>r.resting_heart_rate))}`,
-          cls: fS.avgRestHR >= 60 && fS.avgRestHR <= 80 ? 'trend-up' : 'trend-down' },
-        { icon: '🫁', label: '平均血氧最低', value: fmt(fS.avgSpo2Min, 0) + '%',
-          sub: `最低 ${min(filtered.map(r=>r.spo2_min))}%`,
-          cls: fS.avgSpo2Min >= effWarningDisplay ? 'trend-up' : 'trend-down' },
-        { icon: '😴', label: '平均睡眠时长', value: fmt(fS.avgSleep) + ' h',
-          sub: `${min(filtered.map(r=>r.sleep_hours)).toFixed(1)}-${max(filtered.map(r=>r.sleep_hours)).toFixed(1)} 小时`,
-          cls: fS.avgSleep >= 7 ? 'trend-up' : 'trend-down' },
-        { icon: '⭐', label: '平均睡眠分数', value: Math.round(fS.avgSleepScore) + ' 分',
-          sub: `${min(filtered.map(r=>r.sleep_score))}-${max(filtered.map(r=>r.sleep_score))} 分`,
-          cls: fS.avgSleepScore >= 80 ? 'trend-up' : 'trend-down' },
+        { icon: '🚶', label: '日均步数', value: fS.avgSteps != null ? Math.round(fS.avgSteps).toLocaleString() : '无数据',
+          sub: fS.maxSteps != null ? `最高 ${fS.maxSteps.toLocaleString()} 步` : '暂无数据', cls: fS.avgSteps != null ? (fS.avgSteps >= 3000 ? 'trend-up' : 'trend-down') : 'trend-stable' },
+        { icon: '📏', label: '日均距离', value: fS.avgDistance != null ? fmt(fS.avgDistance) + ' km' : '无数据',
+          sub: fS.maxDistance != null ? `最远 ${fmt(fS.maxDistance)} km` : '暂无数据', cls: 'trend-stable' },
+        { icon: '❤️', label: '平均静息心率', value: fS.avgRestHR != null ? Math.round(fS.avgRestHR) + ' bpm' : '无数据',
+          sub: fS.avgRestHR != null ? `范围 ${min(filtered.map(r=>r.resting_heart_rate))}-${max(filtered.map(r=>r.resting_heart_rate))}` : '暂无数据',
+          cls: fS.avgRestHR != null ? (fS.avgRestHR >= 60 && fS.avgRestHR <= 80 ? 'trend-up' : 'trend-down') : 'trend-stable' },
+        { icon: '🫁', label: '平均血氧最低', value: fS.avgSpo2Min != null ? fmt(fS.avgSpo2Min, 0) + '%' : '无数据',
+          sub: fS.avgSpo2Min != null ? `最低 ${min(filtered.map(r=>r.spo2_min))}%` : '暂无数据',
+          cls: fS.avgSpo2Min != null ? (fS.avgSpo2Min >= effWarningDisplay ? 'trend-up' : 'trend-down') : 'trend-stable' },
+        { icon: '😴', label: '平均睡眠时长', value: fS.avgSleep != null ? fmt(fS.avgSleep) + ' h' : '无数据',
+          sub: fS.avgSleep != null ? `${min(filtered.map(r=>r.sleep_hours)).toFixed(1)}-${max(filtered.map(r=>r.sleep_hours)).toFixed(1)} 小时` : '暂无数据',
+          cls: fS.avgSleep != null ? (fS.avgSleep >= 7 ? 'trend-up' : 'trend-down') : 'trend-stable' },
+        { icon: '⭐', label: '平均睡眠分数', value: fS.avgSleepScore != null ? Math.round(fS.avgSleepScore) + ' 分' : '无数据',
+          sub: fS.avgSleepScore != null ? `${min(filtered.map(r=>r.sleep_score))}-${max(filtered.map(r=>r.sleep_score))} 分` : '暂无数据',
+          cls: fS.avgSleepScore != null ? (fS.avgSleepScore >= 80 ? 'trend-up' : 'trend-down') : 'trend-stable' },
     ].map(c => `
         <div class="summary-card" style="opacity:1;transform:none;">
             <div class="card-icon">${c.icon}</div>
