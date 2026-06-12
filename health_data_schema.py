@@ -179,10 +179,12 @@ class DailyHealthData(BaseModel):
     )
     @classmethod
     def clean_none_strings(cls, v):
-        """将大模型输出的 'None' 或 'null' 字符串自动转为真正的 None 对象"""
+        """将大模型输出的 'None' 或 'null' 字符串（可能带单位如 'None%'）自动转为真正的 None 对象"""
         if isinstance(v, str):
             val = v.strip().lower()
-            if val in ('none', 'null', 'nan', '', 'undefined'):
+            # 移除常见的后缀或单位
+            val_clean = val.replace('%', '').replace('bpm', '').replace('km', '').replace('min', '').replace('h', '').replace('次/分', '').strip()
+            if val_clean in ('none', 'null', 'nan', '', 'undefined', '-', '--', '无', '暂无') or any(val_clean.startswith(x) for x in ('none', 'null', 'nan')):
                 return None
         return v
 
