@@ -1,0 +1,32 @@
+# 🔑 敏感配置文件（包含 Netlify 部署 Access Token）
+publish_config.json
+
+# 📊 个人健康数据及报告目录（核心隐私数据）
+people/
+data/
+
+# 💾 历史/备份数据文件
+health_data.json
+*.json.bak
+*.db
+
+# ⚙️ 环境配置文件（包含大模型 API 密钥）
+.env
+*.env
+local_env.*
+*set_env*
+
+# 🐍 Python 编译及系统缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.DS_Store
+Thumbs.db
+
+# 🤖 IDE 与助手配置文件
+.vscode/
+.idea/
+.claude/
+.gemini/
