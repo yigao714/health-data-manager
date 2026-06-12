@@ -839,7 +839,16 @@ async function handleFiles(files) {
         try {
             const resp = await fetch('/api/extract?person=' + encodeURIComponent(currentPerson), { method: 'POST', body: formData });
             const data = await resp.json();
-            if (data.error) {
+            if (data.already_processed) {
+                card.innerHTML = `
+                    <div class="card-title" style="margin-bottom:12px;">📷 ${file.name} <span class="status" style="background:rgba(52,211,153,0.15);color:#34d399;">✓ 已跳过（已上传过）</span></div>
+                    <div style="display:flex; gap:16px; align-items:flex-start;">
+                        <img src="${objectUrl}" style="max-height: 100px; max-width: 100px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); cursor: pointer;" onclick="window.open('${objectUrl}', '_blank')" title="点击查看大图">
+                        <div style="flex: 1;">
+                            <p style="color:var(--text2);font-size:13px;line-height:1.6;margin:0;">${data.message || '该图片已在系统中，已自动过滤，无需重复上传。'}</p>
+                        </div>
+                    </div>`;
+            } else if (data.error) {
                 card.innerHTML = `
                     <div class="card-title" style="margin-bottom:12px;">📷 ${file.name} <span class="status error">❌ 失败</span></div>
                     <div style="display:flex; gap:16px; align-items:flex-start;">
@@ -1433,12 +1442,22 @@ def api_extract():
     if not file.filename:
         return jsonify({"error": "文件名为空"}), 400
 
-    # 保存到该人员的 data 目录
+    # 保存到该人员的位置目录
     try:
         data_dir = get_person_data_dir(person_id)
         safe_name = _safe_filename(file.filename)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+    # 查重功能：如果文件名已在已处理列表中，且文件确实存在，则跳过提取以节省 Token 和时间
+    store = load_store(person_id)
+    if safe_name in store.processed_files and (data_dir / safe_name).exists():
+        return jsonify({
+            "already_processed": True,
+            "filename": safe_name,
+            "message": "该图片已成功上传并录入过，已自动跳过（查重过滤）"
+        })
+
     save_path = data_dir / safe_name
     file.save(str(save_path))
 
