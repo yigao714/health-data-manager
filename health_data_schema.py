@@ -107,6 +107,20 @@ class PersonProfile(BaseModel):
         return t
 
 
+class ExerciseRecord(BaseModel):
+    """单次运动记录"""
+    date: str = Field(..., description="日期 YYYY-MM-DD")
+    start_time: Optional[str] = Field(default=None, description="开始时间 HH:MM")
+    end_time: Optional[str] = Field(default=None, description="结束时间 HH:MM")
+    sport_type: Optional[str] = Field(default=None, description="运动类型: 步行/跑步/骑行/游泳等")
+    duration_min: Optional[float] = Field(default=None, description="运动时长（分钟）")
+    distance_km: Optional[float] = Field(default=None, description="运动距离（公里）")
+    calories: Optional[float] = Field(default=None, description="消耗热量（千卡）")
+    avg_heart_rate: Optional[int] = Field(default=None, description="运动平均心率")
+    max_heart_rate: Optional[int] = Field(default=None, description="运动最大心率")
+    hr_recovery_1min: Optional[int] = Field(default=None, description="运动后1分钟心率恢复值（下降bpm数）")
+
+
 class DailyHealthData(BaseModel):
     """每日健康数据结构"""
 
@@ -114,7 +128,7 @@ class DailyHealthData(BaseModel):
         ...,
         description="日期，格式 YYYY-MM-DD，例如 2026-06-04"
     )
-    
+
     # ── 活动数据 ──
     steps: Optional[int] = Field(
         default=None,
@@ -128,7 +142,15 @@ class DailyHealthData(BaseModel):
         default=None,
         description="锻炼时长（分钟），例如 0 或 30"
     )
-    
+    exercise_type: Optional[str] = Field(
+        default=None,
+        description="主要运动类型，如 步行/跑步/骑行"
+    )
+    calories: Optional[float] = Field(
+        default=None,
+        description="当日消耗热量（千卡）"
+    )
+
     # ── 心血管数据 ──
     heart_rate_min: Optional[int] = Field(
         default=None,
@@ -142,7 +164,15 @@ class DailyHealthData(BaseModel):
         default=None,
         description="静息心率（次/分钟），例如 62"
     )
-    
+    avg_heart_rate: Optional[int] = Field(
+        default=None,
+        description="全天平均心率（次/分钟）"
+    )
+    hr_recovery_1min: Optional[int] = Field(
+        default=None,
+        description="运动后1分钟心率恢复值（下降bpm数），≤12为异常"
+    )
+
     # ── 血氧数据 ──
     spo2_min: Optional[int] = Field(
         default=None,
@@ -152,8 +182,16 @@ class DailyHealthData(BaseModel):
         default=None,
         description="血氧饱和度最高值（%），例如 99"
     )
-    
-    # ── 睡眠数据 ──
+    spo2_avg: Optional[float] = Field(
+        default=None,
+        description="夜间平均血氧饱和度（%）"
+    )
+    odi: Optional[float] = Field(
+        default=None,
+        description="氧减指数 ODI（事件/小时），用于 OSAHS 筛查"
+    )
+
+    # ── 睡眠基础数据 ──
     sleep_hours: Optional[float] = Field(
         default=None,
         description="总睡眠时长（小时，精确到小数），例如 7.27 代表 7小时16分钟"
@@ -171,10 +209,54 @@ class DailyHealthData(BaseModel):
         description="睡眠分数（0-100），例如 81"
     )
 
+    # ── 睡眠结构（TruSleep 分期）──
+    deep_sleep_min: Optional[float] = Field(
+        default=None,
+        description="深睡时长（分钟），正常占总睡眠15-25%"
+    )
+    light_sleep_min: Optional[float] = Field(
+        default=None,
+        description="浅睡时长（分钟）"
+    )
+    rem_sleep_min: Optional[float] = Field(
+        default=None,
+        description="REM快速眼动睡眠时长（分钟），正常占20-25%"
+    )
+    awake_min: Optional[float] = Field(
+        default=None,
+        description="睡眠期间觉醒时长（分钟）"
+    )
+    sleep_cycles: Optional[int] = Field(
+        default=None,
+        description="完整睡眠周期数，正常4-6个"
+    )
+    sleep_fragmentation: Optional[float] = Field(
+        default=None,
+        description="睡眠碎片化指数（觉醒次数/小时），>10为高碎片化"
+    )
+
+    # ── 压力与呼吸 ──
+    stress_avg: Optional[int] = Field(
+        default=None,
+        description="日平均压力指数（0-100）"
+    )
+    stress_max: Optional[int] = Field(
+        default=None,
+        description="日最高压力指数"
+    )
+    breath_rate_avg: Optional[float] = Field(
+        default=None,
+        description="平均呼吸频率（次/分钟），正常12-20"
+    )
+
     @field_validator(
-        'steps', 'distance_km', 'exercise_minutes', 'heart_rate_min',
-        'heart_rate_max', 'resting_heart_rate', 'spo2_min', 'spo2_max',
+        'steps', 'distance_km', 'exercise_minutes', 'exercise_type', 'calories',
+        'heart_rate_min', 'heart_rate_max', 'resting_heart_rate', 'avg_heart_rate',
+        'hr_recovery_1min', 'spo2_min', 'spo2_max', 'spo2_avg', 'odi',
         'sleep_hours', 'sleep_score', 'sleep_start', 'sleep_end',
+        'deep_sleep_min', 'light_sleep_min', 'rem_sleep_min', 'awake_min',
+        'sleep_cycles', 'sleep_fragmentation',
+        'stress_avg', 'stress_max', 'breath_rate_avg',
         mode='before'
     )
     @classmethod
@@ -261,6 +343,10 @@ class HealthDataStore(BaseModel):
     records: List[DailyHealthData] = Field(
         default_factory=list,
         description="按日期排序的健康数据记录列表"
+    )
+    exercise_records: List[ExerciseRecord] = Field(
+        default_factory=list,
+        description="按时间排序的运动记录列表"
     )
     processed_files: List[str] = Field(
         default_factory=list,

@@ -568,6 +568,28 @@
             <div class="chart-container tall" id="chart-sleep"></div>
         </div>
 
+        <!-- 睡眠结构分析 (TruSleep) -->
+        <div class="chart-card full-width fade-in">
+            <div class="chart-title">🧠 睡眠结构分析 (TruSleep)</div>
+            <div class="chart-desc">深睡/浅睡/REM/觉醒 四阶段分布 — 深睡正常占15-25%，REM正常占20-25% (AASM 2023)</div>
+            <div id="sleep-arch-summary"></div>
+            <div class="chart-container tall" id="chart-sleep-arch"></div>
+        </div>
+
+        <!-- ODI + OSAHS 筛查 -->
+        <div class="chart-card fade-in">
+            <div class="chart-title">🫁 OSAHS 风险筛查 (ODI)</div>
+            <div class="chart-desc">基于夜间血氧去饱和指数(ODI)的阻塞性睡眠呼吸暂停筛查 — 腕式参考·非诊断</div>
+            <div id="odi-assessment"></div>
+        </div>
+
+        <!-- 临床交叉关联预警 -->
+        <div class="chart-card fade-in">
+            <div class="chart-title">🔬 多维度临床交叉预警</div>
+            <div class="chart-desc">基于多指标联动分析的综合风险评估（运动×心率×睡眠×血氧）</div>
+            <div id="cross-correlation-alerts"></div>
+        </div>
+
         <!-- 日历热力图 -->
         <div class="chart-card full-width fade-in">
             <div class="chart-title">📅 健康日历</div>
@@ -1896,8 +1918,305 @@ setTimeout(() => {
     });
 }, 50);
 
+// ══════════════════════════════════════════════════════════════
+// 10. SLEEP ARCHITECTURE (TruSleep 深睡/浅睡/REM/觉醒)
+// 理论基础: AASM 2023, World Sleep Society 2025
+// ══════════════════════════════════════════════════════════════
+const hasSleepArch = records.some(r => r.deep_sleep_min != null);
+if (hasSleepArch) {
+    // ── 统计汇总 ──
+    const archRecords = records.filter(r => r.deep_sleep_min != null);
+    const avgDeep = avg(archRecords.map(r => r.deep_sleep_min));
+    const avgLight = avg(archRecords.map(r => r.light_sleep_min));
+    const avgREM = avg(archRecords.map(r => r.rem_sleep_min));
+    const avgAwake = avg(archRecords.map(r => r.awake_min || 0));
+    const avgTotalSleep = avgDeep + avgLight + avgREM;
+    const deepPct = avgTotalSleep > 0 ? (avgDeep / avgTotalSleep * 100).toFixed(1) : 0;
+    const remPct = avgTotalSleep > 0 ? (avgREM / avgTotalSleep * 100).toFixed(1) : 0;
+    const avgFrag = avg(archRecords.map(r => r.sleep_fragmentation).filter(v => v != null));
+    const avgCycles = avg(archRecords.map(r => r.sleep_cycles).filter(v => v != null));
+
+    // 评估
+    const deepStatus = deepPct >= 15 ? (deepPct <= 25 ? {t:'正常',c:colors.green} : {t:'偏高',c:colors.cyan}) :
+                       deepPct >= 10 ? {t:'偏低',c:colors.yellow} : {t:'不足',c:colors.orange};
+    const remStatus = remPct >= 20 ? (remPct <= 25 ? {t:'正常',c:colors.green} : {t:'偏高',c:colors.cyan}) :
+                      remPct >= 15 ? {t:'偏低',c:colors.yellow} : {t:'不足',c:colors.orange};
+    const fragStatus = avgFrag != null ? (avgFrag < 5 ? {t:'优秀',c:colors.green} :
+                       avgFrag < 10 ? {t:'正常',c:colors.cyan} : {t:'高碎片化',c:colors.orange}) :
+                       {t:'无数据',c:'#94a3b8'};
+
+    document.getElementById('sleep-arch-summary').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0;">
+        <div style="padding:10px 14px;border-radius:10px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.15);">
+            <div style="font-size:11px;color:var(--text-muted);">深睡占比</div>
+            <div style="font-size:22px;font-weight:700;color:${deepStatus.c};">${deepPct}%</div>
+            <div style="font-size:10px;color:${deepStatus.c};">${deepStatus.t} · 参考15-25%</div>
+        </div>
+        <div style="padding:10px 14px;border-radius:10px;background:rgba(244,114,182,0.08);border:1px solid rgba(244,114,182,0.15);">
+            <div style="font-size:11px;color:var(--text-muted);">REM占比</div>
+            <div style="font-size:22px;font-weight:700;color:${remStatus.c};">${remPct}%</div>
+            <div style="font-size:10px;color:${remStatus.c};">${remStatus.t} · 参考20-25%</div>
+        </div>
+        <div style="padding:10px 14px;border-radius:10px;background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.15);">
+            <div style="font-size:11px;color:var(--text-muted);">碎片化指数</div>
+            <div style="font-size:22px;font-weight:700;color:${fragStatus.c};">${avgFrag != null ? avgFrag.toFixed(1) : '-'}</div>
+            <div style="font-size:10px;color:${fragStatus.c};">${fragStatus.t} · 次/小时</div>
+        </div>
+        <div style="padding:10px 14px;border-radius:10px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.15);">
+            <div style="font-size:11px;color:var(--text-muted);">平均周期数</div>
+            <div style="font-size:22px;font-weight:700;color:var(--text-primary);">${avgCycles != null ? avgCycles.toFixed(1) : '-'}</div>
+            <div style="font-size:10px;color:var(--text-secondary);">正常 4-6 个/晚</div>
+        </div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);padding:6px 10px;background:rgba(99,102,241,0.04);border-radius:6px;">
+        📖 依据: AASM 2023 — 成人正常深睡占比15-25%(N3期·恢复体力·清除代谢废物)，REM占比20-25%(记忆巩固·情绪调节·神经可塑性)。碎片化指数>10次/小时提示睡眠连续性受损。
+    </div>`;
+
+    // ── 堆叠条形图 ──
+    const archChart = echarts.init(document.getElementById('chart-sleep-arch'));
+    const archDates = archRecords.map(r => r.date.slice(5));
+    archChart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(17,24,39,0.95)',
+            borderColor: 'rgba(99,102,241,0.3)',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(params) {
+                const idx = params[0].dataIndex;
+                const r = archRecords[idx];
+                const total = (r.deep_sleep_min||0) + (r.light_sleep_min||0) + (r.rem_sleep_min||0);
+                let s = `<strong>${r.date}</strong><br/>`;
+                s += `🟣 深睡: ${(r.deep_sleep_min||0).toFixed(0)}分钟 (${total>0 ? ((r.deep_sleep_min||0)/total*100).toFixed(1) : 0}%)<br/>`;
+                s += `🔵 浅睡: ${(r.light_sleep_min||0).toFixed(0)}分钟<br/>`;
+                s += `🟢 REM: ${(r.rem_sleep_min||0).toFixed(0)}分钟 (${total>0 ? ((r.rem_sleep_min||0)/total*100).toFixed(1) : 0}%)<br/>`;
+                s += `⚪ 觉醒: ${(r.awake_min||0).toFixed(0)}分钟`;
+                if (r.sleep_fragmentation != null) s += `<br/>碎片化: ${r.sleep_fragmentation}次/h`;
+                if (r.sleep_cycles != null) s += `<br/>周期数: ${r.sleep_cycles}`;
+                return s;
+            },
+        },
+        legend: {
+            data: ['深睡', '浅睡', 'REM', '觉醒'],
+            textStyle: { color: '#94a3b8' },
+            top: 0,
+        },
+        grid: { left: 50, right: 20, top: 50, bottom: 40 },
+        xAxis: {
+            type: 'category',
+            data: archDates,
+            axisLabel: { color: '#64748b', fontSize: 11 },
+            axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } },
+        },
+        yAxis: {
+            type: 'value',
+            name: '分钟',
+            nameTextStyle: { color: '#64748b' },
+            axisLabel: { color: '#64748b' },
+            splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } },
+        },
+        series: [
+            {
+                name: '深睡', type: 'bar', stack: 'sleep',
+                data: archRecords.map(r => r.deep_sleep_min || 0),
+                barWidth: '50%',
+                itemStyle: { color: '#6366f1', borderRadius: [0, 0, 0, 0] },
+            },
+            {
+                name: '浅睡', type: 'bar', stack: 'sleep',
+                data: archRecords.map(r => r.light_sleep_min || 0),
+                itemStyle: { color: '#818cf8' },
+            },
+            {
+                name: 'REM', type: 'bar', stack: 'sleep',
+                data: archRecords.map(r => r.rem_sleep_min || 0),
+                itemStyle: { color: '#f472b6' },
+            },
+            {
+                name: '觉醒', type: 'bar', stack: 'sleep',
+                data: archRecords.map(r => r.awake_min || 0),
+                itemStyle: { color: 'rgba(148,163,184,0.4)', borderRadius: [4, 4, 0, 0] },
+            },
+        ],
+    });
+} else {
+    document.getElementById('sleep-arch-summary').innerHTML =
+        '<div style="padding:16px;color:var(--text-muted);font-size:13px;">暂无睡眠结构分期数据。需要华为手表开启 TruSleep 功能并通过备份导入。</div>';
+}
+
+// ══════════════════════════════════════════════════════════════
+// 11. ODI + OSAHS SCREENING
+// 理论基础: BTS, GOLD, AASM 指南
+// ══════════════════════════════════════════════════════════════
+const hasODI = records.some(r => r.odi != null);
+if (hasODI) {
+    const odiRecords = records.filter(r => r.odi != null);
+    const avgODI = avg(odiRecords.map(r => r.odi));
+    const maxODI = max(odiRecords.map(r => r.odi));
+    const daysHighODI = odiRecords.filter(r => r.odi >= 5).length;
+
+    let odiLevel, odiColor, odiAdvice;
+    if (avgODI < 5) { odiLevel = '正常'; odiColor = colors.green; odiAdvice = '未见明显阻塞性睡眠呼吸暂停迹象'; }
+    else if (avgODI < 15) { odiLevel = '轻度风险'; odiColor = colors.yellow; odiAdvice = '建议关注体位、控制体重，持续监测'; }
+    else if (avgODI < 30) { odiLevel = '中度风险'; odiColor = colors.orange; odiAdvice = '建议至医院进行多导睡眠监测(PSG)评估'; }
+    else { odiLevel = '重度风险'; odiColor = colors.red; odiAdvice = '强烈建议尽快进行临床睡眠医学评估'; }
+
+    document.getElementById('odi-assessment').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0;">
+        <div style="padding:14px;border-radius:12px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);">
+            <div style="font-size:11px;color:var(--text-muted);">平均 ODI</div>
+            <div style="font-size:28px;font-weight:700;color:${odiColor};">${avgODI.toFixed(1)}</div>
+            <div style="font-size:12px;color:${odiColor};font-weight:600;">${odiLevel}</div>
+        </div>
+        <div style="padding:14px;border-radius:12px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);">
+            <div style="font-size:11px;color:var(--text-muted);">最高 ODI / 异常天数</div>
+            <div style="font-size:28px;font-weight:700;color:var(--text-primary);">${maxODI.toFixed(1)}</div>
+            <div style="font-size:12px;color:var(--text-secondary);">${daysHighODI}天 ODI≥5</div>
+        </div>
+    </div>
+    <div style="padding:10px 14px;border-radius:8px;background:${odiColor}15;border-left:3px solid ${odiColor};margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:600;color:${odiColor};">💡 ${odiAdvice}</div>
+    </div>
+    <div style="font-size:10px;color:var(--text-muted);padding:6px 10px;background:rgba(99,102,241,0.04);border-radius:6px;">
+        ⚠️ ODI由腕式血氧传感器计算（精度±2-3%），仅作为OSAHS筛查参考，不能替代PSG诊断。<br/>
+        📖 ODI阈值: <5正常 | 5-15轻度 | 15-30中度 | >30重度 (AASM指南)
+    </div>`;
+} else {
+    document.getElementById('odi-assessment').innerHTML =
+        '<div style="padding:16px;color:var(--text-muted);font-size:13px;">暂无ODI数据。需通过华为备份导入连续夜间血氧数据后自动计算。</div>';
+}
+
+// ══════════════════════════════════════════════════════════════
+// 12. CLINICAL CROSS-CORRELATION ALERTS
+// 多维度临床交叉关联预警引擎
+// ══════════════════════════════════════════════════════════════
+const crossAlerts = [];
+
+// [A] 睡眠-心率交互
+const sleepHrPairs = records.filter(r => r.sleep_hours != null && r.resting_heart_rate != null);
+if (sleepHrPairs.length >= 5) {
+    const corr = pearsonCorr(
+        sleepHrPairs.map(r => r.sleep_hours),
+        sleepHrPairs.map(r => r.resting_heart_rate)
+    );
+    if (corr < -0.3) {
+        crossAlerts.push({
+            icon: '💤❤️', level: 'info',
+            title: '睡眠-心率负相关',
+            detail: `睡眠时长与静息心率呈负相关 (r=${corr.toFixed(2)})，睡眠越短→心率越高。提示交感神经系统因睡眠不足而过度激活。`,
+            ref: 'Copenhagen City Heart Study'
+        });
+    }
+}
+
+// [B] 运动-睡眠交互
+if (hasSleepArch) {
+    const exSleepPairs = records.filter(r => r.steps != null && r.deep_sleep_min != null);
+    if (exSleepPairs.length >= 5) {
+        const corrExDeep = pearsonCorr(
+            exSleepPairs.map(r => r.steps),
+            exSleepPairs.map(r => r.deep_sleep_min)
+        );
+        if (corrExDeep > 0.3) {
+            crossAlerts.push({
+                icon: '🏃🧠', level: 'good',
+                title: '运动促进深睡',
+                detail: `步数与深睡时长呈正相关 (r=${corrExDeep.toFixed(2)})，运动越多→深睡越好。继续保持规律运动。`,
+                ref: 'Lancet Public Health 2022'
+            });
+        } else if (corrExDeep < -0.3) {
+            crossAlerts.push({
+                icon: '⚡😫', level: 'warn',
+                title: '过度运动损害深睡',
+                detail: `步数与深睡呈负相关 (r=${corrExDeep.toFixed(2)})，可能存在过度训练。建议适量运动。`,
+                ref: 'ACSM Exercise Guidelines'
+            });
+        }
+    }
+}
+
+// [C] ODI × 深睡 交叉 (OSAHS增强筛查)
+if (hasODI && hasSleepArch) {
+    const crossRecords = records.filter(r => r.odi != null && r.deep_sleep_min != null);
+    const highOdiLowDeep = crossRecords.filter(r => {
+        const total = (r.deep_sleep_min||0) + (r.light_sleep_min||0) + (r.rem_sleep_min||0);
+        return r.odi >= 5 && total > 0 && (r.deep_sleep_min / total) < 0.15;
+    }).length;
+    if (highOdiLowDeep >= 2) {
+        crossAlerts.push({
+            icon: '🫁🧠', level: 'danger',
+            title: 'OSAHS交叉信号增强',
+            detail: `${highOdiLowDeep}天同时出现 ODI≥5 + 深睡占比<15%。反复呼吸暂停严重破坏深睡结构，OSAHS概率显著升高。强烈建议进行PSG评估。`,
+            ref: 'AASM + BTS/GOLD'
+        });
+    }
+}
+
+// [D] 碎片化 × 日间步数
+if (hasSleepArch) {
+    const fragStepPairs = records.filter(r => r.sleep_fragmentation != null && r.steps != null);
+    const highFragLowStep = fragStepPairs.filter(r => r.sleep_fragmentation > 8 && r.steps < 3000).length;
+    if (highFragLowStep >= 2) {
+        crossAlerts.push({
+            icon: '😴🚶', level: 'warn',
+            title: '睡眠碎片化→日间活动减少',
+            detail: `${highFragLowStep}天出现高碎片化(>8次/h) + 低步数(<3000)。睡眠质量差导致日间疲劳→活动减少，形成恶性循环。`,
+            ref: 'World Sleep Society 2025'
+        });
+    }
+}
+
+// [E] 久坐预警
+const sedentaryDays = records.filter(r => r.steps != null && r.steps < 3000).length;
+if (sedentaryDays >= 3) {
+    crossAlerts.push({
+        icon: '🪑⚠️', level: 'warn',
+        title: '久坐行为风险',
+        detail: `${sedentaryDays}天步数<3000步。WHO定义<5000步/日为久坐行为，与心血管疾病、代谢综合征风险独立相关。`,
+        ref: 'WHO 2020 Physical Activity Guidelines'
+    });
+}
+
+// [F] 压力 × 睡眠
+const hasStress = records.some(r => r.stress_avg != null);
+if (hasStress && hasSleepArch) {
+    const stressSleepPairs = records.filter(r => r.stress_avg != null && r.deep_sleep_min != null);
+    if (stressSleepPairs.length >= 3) {
+        const highStressLowDeep = stressSleepPairs.filter(r => {
+            const total = (r.deep_sleep_min||0) + (r.light_sleep_min||0) + (r.rem_sleep_min||0);
+            return r.stress_avg > 60 && total > 0 && (r.deep_sleep_min / total) < 0.15;
+        }).length;
+        if (highStressLowDeep >= 2) {
+            crossAlerts.push({
+                icon: '😰🧠', level: 'warn',
+                title: '高压力损害深睡',
+                detail: `${highStressLowDeep}天同时出现高压力(>60) + 深睡不足(<15%)。慢性压力导致皮质醇升高，严重影响深睡质量。`,
+                ref: 'Psychoneuroendocrinology 2020'
+            });
+        }
+    }
+}
+
+// 渲染交叉预警
+const alertColors = { danger: colors.red, warn: colors.orange, good: colors.green, info: colors.cyan };
+const alertBg = { danger: 'rgba(248,113,113,0.08)', warn: 'rgba(251,146,60,0.08)', good: 'rgba(52,211,153,0.06)', info: 'rgba(34,211,238,0.06)' };
+
+if (crossAlerts.length > 0) {
+    document.getElementById('cross-correlation-alerts').innerHTML = crossAlerts.map(a => `
+        <div style="padding:12px 16px;margin:8px 0;border-radius:10px;background:${alertBg[a.level]};border-left:3px solid ${alertColors[a.level]};">
+            <div style="font-size:14px;font-weight:600;color:${alertColors[a.level]};">${a.icon} ${a.title}</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${a.detail}</div>
+            ${a.ref ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">📖 ${a.ref}</div>` : ''}
+        </div>
+    `).join('');
+} else {
+    document.getElementById('cross-correlation-alerts').innerHTML =
+        '<div style="padding:16px;color:var(--text-muted);font-size:13px;">✅ 当前数据未发现需要交叉预警的异常组合。持续监测中。</div>';
+}
+
 
 </script>
+
 
 </body>
 </html>

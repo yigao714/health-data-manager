@@ -25,7 +25,7 @@ from flask import Flask, request, jsonify, send_from_directory, render_template_
 PROJECT_DIR = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from health_data_schema import HealthDataStore, DailyHealthData, PersonProfile
+from health_data_schema import HealthDataStore, DailyHealthData, PersonProfile, ExerciseRecord
 from extract_health_data import QwenVLExtractor, check_cross_day_consistency
 
 # 修复 Windows GBK 终端无法输出 emoji 的问题
@@ -2146,6 +2146,23 @@ def api_import_huawei_zip():
     for date_str in sorted(all_daily_records.keys()):
         fields = all_daily_records[date_str]
         fields['date'] = date_str
+
+        # ── 清理内部聚合临时字段 + 计算 ODI ──
+        _spo2_samples = fields.pop('_spo2_samples', [])
+        fields.pop('_hr_samples', None)
+        fields.pop('_stress_samples', None)
+        fields.pop('_br_samples', None)
+
+        # ODI 计算：SpO2 下降 ≥3% 的事件数 / 睡眠小时
+        if len(_spo2_samples) >= 4:
+            desat_events = 0
+            for i in range(1, len(_spo2_samples)):
+                if _spo2_samples[i-1] - _spo2_samples[i] >= 3:
+                    desat_events += 1
+            sleep_hrs = fields.get('sleep_hours') or 7.0  # 默认7小时
+            if sleep_hrs > 0:
+                fields['odi'] = round(desat_events / sleep_hrs, 1)
+
         try:
             record = DailyHealthData.model_validate(fields)
         except Exception as e:
@@ -2316,6 +2333,23 @@ def _extract_item(item: dict, fname_lower: str, result: dict):
                 except (ValueError, TypeError):
                     pass
                 break
+        # 运动类型
+        for tkey in ('sportType', 'sport_type', 'exerciseType', 'type', 'activityType'):
+            v = item.get(tkey)
+            if v is not None:
+                fields.setdefault('exercise_type', str(v))
+                break
+        # 热量
+        for ckey in ('calories', 'calorie', 'totalCalories', 'energy'):
+            v = item.get(ckey)
+            if v is not None:
+                try:
+                    val = float(str(v))
+                    if 0 < val < 50000:
+                        fields['calories'] = (fields.get('calories') or 0) + val
+                except (ValueError, TypeError):
+                    pass
+                break
 
     # 心率相关
     elif any(kw in fname_lower for kw in ('heart', 'hr', 'pulse', 'heartrate')):
@@ -2343,6 +2377,21 @@ def _extract_item(item: dict, fname_lower: str, result: dict):
                 except (ValueError, TypeError):
                     pass
                 break
+        # 全天平均心率（聚合连续心率数据）
+        _hr_samples = fields.get('_hr_samples', [])
+        for vkey in ('value', 'heartRate', 'heart_rate', 'hr', 'bpm', 'rate'):
+            v = item.get(vkey)
+            if v is not None:
+                try:
+                    val = int(float(str(v)))
+                    if 30 <= val <= 250:
+                        _hr_samples.append(val)
+                        fields['_hr_samples'] = _hr_samples
+                        if len(_hr_samples) >= 2:
+                            fields['avg_heart_rate'] = round(sum(_hr_samples) / len(_hr_samples))
+                except (ValueError, TypeError):
+                    pass
+                break
 
     # 血氧相关
     elif any(kw in fname_lower for kw in ('oxygen', 'spo2', 'blood')):
@@ -2356,6 +2405,12 @@ def _extract_item(item: dict, fname_lower: str, result: dict):
                         cur_max = fields.get('spo2_max')
                         fields['spo2_min'] = min(cur_min, val) if cur_min is not None else val
                         fields['spo2_max'] = max(cur_max, val) if cur_max is not None else val
+                        # 聚合计算平均血氧和 ODI
+                        _spo2_samples = fields.get('_spo2_samples', [])
+                        _spo2_samples.append(val)
+                        fields['_spo2_samples'] = _spo2_samples
+                        if len(_spo2_samples) >= 2:
+                            fields['spo2_avg'] = round(sum(_spo2_samples) / len(_spo2_samples), 1)
                 except (ValueError, TypeError):
                     pass
                 break
@@ -2401,6 +2456,60 @@ def _extract_item(item: dict, fname_lower: str, result: dict):
                 hm = _extract_hm(str(v))
                 if hm:
                     fields['sleep_end'] = hm
+                break
+        # ── 睡眠结构分期（TruSleep sleepDetail）──
+        sleep_detail = item.get('sleepDetail') or item.get('sleep_detail') or item.get('sleepStages') or item.get('stages')
+        if isinstance(sleep_detail, list) and len(sleep_detail) > 0:
+            _parse_sleep_stages(sleep_detail, fields)
+        # 直接提供的睡眠阶段时长
+        for dk, fk in [('deepSleepTime', 'deep_sleep_min'), ('deep_sleep', 'deep_sleep_min'),
+                       ('lightSleepTime', 'light_sleep_min'), ('light_sleep', 'light_sleep_min'),
+                       ('remSleepTime', 'rem_sleep_min'), ('rem_sleep', 'rem_sleep_min'),
+                       ('awakeTime', 'awake_min'), ('awake_duration', 'awake_min')]:
+            v = item.get(dk)
+            if v is not None:
+                try:
+                    val = float(str(v))
+                    if val > 1440:  # seconds
+                        val = val / 60
+                    if 0 <= val <= 1440:
+                        fields[fk] = val
+                except (ValueError, TypeError):
+                    pass
+
+    # 压力相关
+    elif any(kw in fname_lower for kw in ('stress', 'pressure')):
+        for vkey in ('value', 'stress', 'stressScore', 'stress_score', 'level'):
+            v = item.get(vkey)
+            if v is not None:
+                try:
+                    val = int(float(str(v)))
+                    if 0 <= val <= 100:
+                        cur_avg = fields.get('stress_avg')
+                        cur_max = fields.get('stress_max')
+                        _stress_samples = fields.get('_stress_samples', [])
+                        _stress_samples.append(val)
+                        fields['_stress_samples'] = _stress_samples
+                        fields['stress_avg'] = round(sum(_stress_samples) / len(_stress_samples))
+                        fields['stress_max'] = max(cur_max, val) if cur_max is not None else val
+                except (ValueError, TypeError):
+                    pass
+                break
+
+    # 呼吸频率相关
+    elif any(kw in fname_lower for kw in ('breath', 'respir')):
+        for vkey in ('value', 'breathRate', 'breath_rate', 'respiratoryRate', 'rate'):
+            v = item.get(vkey)
+            if v is not None:
+                try:
+                    val = float(str(v))
+                    if 5 <= val <= 60:
+                        _br_samples = fields.get('_br_samples', [])
+                        _br_samples.append(val)
+                        fields['_br_samples'] = _br_samples
+                        fields['breath_rate_avg'] = round(sum(_br_samples) / len(_br_samples), 1)
+                except (ValueError, TypeError):
+                    pass
                 break
 
     # 通用兜底：尝试通过字段名自动推断
@@ -2497,8 +2606,102 @@ def _generic_extract(item: dict, fields: dict):
                     val = round(val / 60, 2)
                 if 0 < val <= 24:
                     fields.setdefault('sleep_hours', val)
+            elif any(w in kl for w in ('deepsleep', 'deep_sleep')):
+                val = float(str(v))
+                if val > 1440: val = val / 60
+                if 0 <= val <= 1440:
+                    fields.setdefault('deep_sleep_min', val)
+            elif any(w in kl for w in ('lightsleep', 'light_sleep')):
+                val = float(str(v))
+                if val > 1440: val = val / 60
+                if 0 <= val <= 1440:
+                    fields.setdefault('light_sleep_min', val)
+            elif any(w in kl for w in ('remsleep', 'rem_sleep', 'rem')):
+                val = float(str(v))
+                if val > 1440: val = val / 60
+                if 0 <= val <= 1440:
+                    fields.setdefault('rem_sleep_min', val)
+            elif any(w in kl for w in ('stress',)):
+                val = int(float(str(v)))
+                if 0 <= val <= 100:
+                    fields.setdefault('stress_avg', val)
+            elif any(w in kl for w in ('calorie', 'calories', 'energy')):
+                val = float(str(v))
+                if 0 < val < 50000:
+                    fields.setdefault('calories', val)
         except (ValueError, TypeError):
             continue
+
+
+def _parse_sleep_stages(detail_list: list, fields: dict):
+    """解析华为 TruSleep sleepDetail 数据，计算睡眠结构
+
+    华为 sleepState 编码:
+      1 = 清醒(Awake)
+      2 = 浅睡(Light)
+      3 = 深睡(Deep)
+      4 = REM(快速眼动)
+    """
+    deep_total = 0.0
+    light_total = 0.0
+    rem_total = 0.0
+    awake_total = 0.0
+    awake_count = 0
+    prev_state = None
+    cycle_count = 0
+    has_deep_in_cycle = False
+    has_rem_in_cycle = False
+
+    for entry in detail_list:
+        if not isinstance(entry, dict):
+            continue
+        state = entry.get('sleepState') or entry.get('sleep_state') or entry.get('state') or entry.get('stage')
+        dur = entry.get('duration') or entry.get('duration_min') or entry.get('durationMin') or 0
+
+        try:
+            state = int(state)
+            dur = float(dur)
+        except (ValueError, TypeError):
+            continue
+
+        # 如果 duration 看起来是秒（>120），转为分钟
+        if dur > 120:
+            dur = dur / 60
+
+        if state == 1:  # 清醒
+            awake_total += dur
+            awake_count += 1
+        elif state == 2:  # 浅睡
+            light_total += dur
+        elif state == 3:  # 深睡
+            deep_total += dur
+            has_deep_in_cycle = True
+        elif state == 4:  # REM
+            rem_total += dur
+            has_rem_in_cycle = True
+            # 一个完整周期: 浅→深→REM
+            if has_deep_in_cycle:
+                cycle_count += 1
+                has_deep_in_cycle = False
+                has_rem_in_cycle = False
+
+    total_sleep = deep_total + light_total + rem_total
+
+    if total_sleep > 0:
+        fields['deep_sleep_min'] = round(deep_total, 1)
+        fields['light_sleep_min'] = round(light_total, 1)
+        fields['rem_sleep_min'] = round(rem_total, 1)
+        fields['awake_min'] = round(awake_total, 1)
+        fields['sleep_cycles'] = max(cycle_count, 1)
+
+        # 碎片化指数: 觉醒次数 / 总睡眠小时
+        total_sleep_hours = total_sleep / 60
+        if total_sleep_hours > 0 and awake_count > 0:
+            fields['sleep_fragmentation'] = round(awake_count / total_sleep_hours, 1)
+
+        # 补全 sleep_hours (如果尚未设置)
+        if 'sleep_hours' not in fields or fields['sleep_hours'] is None:
+            fields['sleep_hours'] = round(total_sleep / 60, 2)
 
 
 # ══════════════════════════════════════════════════════════════
