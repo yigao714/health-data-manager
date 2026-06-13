@@ -37,7 +37,7 @@ if sys.stderr and hasattr(sys.stderr, 'buffer') and not getattr(sys.stderr, '_ut
     sys.stderr._utf8_wrapped = True
 
 app = Flask(__name__, static_folder=str(PROJECT_DIR))
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB 上传限制
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB 上传限制（兼容华为健康备份压缩包）
 
 PEOPLE_DIR = PROJECT_DIR / "people"
 DASHBOARD_TEMPLATE = PROJECT_DIR / "dashboard_template.html"
@@ -508,6 +508,23 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
             border-radius: 12px;
         }
         .lan-info-box.show { display: block; }
+
+        /* Huawei ZIP import */
+        .huawei-import-card { background: linear-gradient(135deg, rgba(251,146,60,0.06), rgba(167,139,250,0.06)); border: 1px solid rgba(251,146,60,0.2); }
+        .huawei-import-card .card-title { color: var(--orange); }
+        .import-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+        .import-row .form-group { flex: 1; min-width: 200px; }
+        .import-progress { margin-top: 16px; display: none; }
+        .import-progress.show { display: block; }
+        .progress-bar-wrap { width: 100%; height: 8px; border-radius: 4px; background: rgba(99,102,241,0.1); overflow: hidden; margin-top: 8px; }
+        .progress-bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--orange), var(--cyan)); width: 0%; transition: width 0.4s ease; }
+        .import-log { margin-top: 12px; max-height: 240px; overflow-y: auto; padding: 12px; border-radius: 10px; background: rgba(10,14,26,0.6); font-family: 'Consolas','Courier New',monospace; font-size: 12px; line-height: 1.7; color: var(--text2); }
+        .import-log .log-ok { color: var(--green); }
+        .import-log .log-skip { color: var(--orange); }
+        .import-log .log-err { color: var(--red); }
+        .import-summary { margin-top: 12px; padding: 14px; border-radius: 10px; }
+        .import-summary.ok { background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.2); }
+        .import-summary.partial { background: rgba(251,146,60,0.1); border: 1px solid rgba(251,146,60,0.2); }
     </style>
 </head>
 <body>
@@ -548,6 +565,38 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
             </div>
         </div>
         <div id="extraction-results"></div>
+
+        <!-- 华为备份压缩包导入 -->
+        <div class="card huawei-import-card" style="margin-top: 24px;">
+            <div class="card-title">📦 华为运动健康备份导入</div>
+            <p style="color:var(--text2); font-size:13px; line-height:1.7; margin-bottom:16px;">
+                上传从华为「个人数据与隐私」导出的加密 <code>.zip</code> 备份文件，系统将自动解密、提取并合并步数、心率、血氧、睡眠等健康指标数据。
+            </p>
+            <div class="import-row">
+                <div class="form-group">
+                    <label class="form-label">选择备份 ZIP 文件</label>
+                    <input class="form-input" type="file" id="huawei-zip-input" accept=".zip">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">解压密码</label>
+                    <input class="form-input" type="password" id="huawei-zip-pwd" placeholder="华为邮件中的解压密码">
+                </div>
+                <button class="btn btn-primary" id="btn-import-hw" onclick="importHuaweiZip()" style="height:42px;">
+                    🚀 开始导入
+                </button>
+            </div>
+            <div class="import-progress" id="hw-import-progress">
+                <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text2);">
+                    <span id="hw-progress-text">准备中…</span>
+                    <span id="hw-progress-pct">0%</span>
+                </div>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" id="hw-progress-bar"></div>
+                </div>
+                <div class="import-log" id="hw-import-log"></div>
+                <div class="import-summary" id="hw-import-summary" style="display:none;"></div>
+            </div>
+        </div>
     </div>
 
     <!-- ═══ TAB 2: PROFILE ═══ -->
@@ -1280,6 +1329,115 @@ async function doRestore(input) {
     input.value = '';
 }
 
+// ══════════ HUAWEI ZIP IMPORT ══════════
+async function importHuaweiZip() {
+    const fileInput = document.getElementById('huawei-zip-input');
+    const pwdInput  = document.getElementById('huawei-zip-pwd');
+    const file = fileInput.files[0];
+    if (!file) { showToast('请先选择 ZIP 备份文件', 'error'); return; }
+    if (!pwdInput.value) { showToast('请输入解压密码', 'error'); return; }
+    if (!currentPerson) { showToast('请先选择一个人员', 'error'); return; }
+
+    const btn = document.getElementById('btn-import-hw');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 导入中…';
+
+    const progressDiv = document.getElementById('hw-import-progress');
+    const logDiv = document.getElementById('hw-import-log');
+    const summaryDiv = document.getElementById('hw-import-summary');
+    const barEl = document.getElementById('hw-progress-bar');
+    const pctEl = document.getElementById('hw-progress-pct');
+    const txtEl = document.getElementById('hw-progress-text');
+
+    progressDiv.classList.add('show');
+    logDiv.innerHTML = '';
+    summaryDiv.style.display = 'none';
+    barEl.style.width = '0%';
+    txtEl.textContent = '正在上传文件…';
+    pctEl.textContent = '0%';
+
+    function addLog(text, cls) {
+        const span = document.createElement('div');
+        span.className = cls || '';
+        span.textContent = text;
+        logDiv.appendChild(span);
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    addLog('▶ 开始上传 ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + 'MB)…');
+    barEl.style.width = '10%'; pctEl.textContent = '10%';
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('password', pwdInput.value);
+
+    try {
+        txtEl.textContent = '正在解密并解析…';
+        barEl.style.width = '30%'; pctEl.textContent = '30%';
+
+        const resp = await fetch('/api/import-huawei-zip?person=' + encodeURIComponent(currentPerson), {
+            method: 'POST', body: formData
+        });
+        const data = await resp.json();
+        barEl.style.width = '90%'; pctEl.textContent = '90%';
+
+        if (data.error) {
+            addLog('✖ 错误: ' + data.error, 'log-err');
+            showToast('导入失败: ' + data.error, 'error');
+            btn.disabled = false;
+            btn.innerHTML = '🚀 开始导入';
+            return;
+        }
+
+        // Display detailed logs
+        if (data.parsed_files) {
+            data.parsed_files.forEach(f => addLog('  📄 已解析: ' + f, 'log-ok'));
+        }
+        if (data.skipped_files) {
+            data.skipped_files.forEach(f => addLog('  ⏭ 已跳过: ' + f, 'log-skip'));
+        }
+        if (data.merge_log) {
+            data.merge_log.forEach(m => {
+                const cls = m.startsWith('新增') ? 'log-ok' : m.startsWith('合并') ? 'log-skip' : '';
+                addLog('  ' + m, cls);
+            });
+        }
+
+        barEl.style.width = '100%'; pctEl.textContent = '100%';
+        txtEl.textContent = '导入完成！';
+
+        // Show summary
+        const s = data.summary || {};
+        const isOk = (s.errors || 0) === 0;
+        summaryDiv.style.display = 'block';
+        summaryDiv.className = 'import-summary ' + (isOk ? 'ok' : 'partial');
+        summaryDiv.innerHTML = `
+            <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${isOk ? 'var(--green)' : 'var(--orange)'}">
+                ${isOk ? '✅ 导入成功' : '⚠️ 部分导入成功'}
+            </div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.8;">
+                📊 新增 <b style="color:var(--green)">${s.new_records || 0}</b> 天数据，
+                合并更新 <b style="color:var(--cyan)">${s.merged_records || 0}</b> 天数据，
+                日期范围: <b>${s.date_range || '—'}</b><br>
+                📂 共解析 <b>${s.total_files_parsed || 0}</b> 个文件，
+                跳过 <b>${s.total_files_skipped || 0}</b> 个文件
+                ${(s.errors || 0) > 0 ? '<br>⚠️ <b style="color:var(--red)">' + s.errors + '</b> 个文件出错' : ''}
+            </div>`;
+
+        showToast('✅ 华为备份导入成功: 新增 ' + (s.new_records || 0) + ' 天, 合并 ' + (s.merged_records || 0) + ' 天', 'success');
+
+        // Reload data
+        loadDataTable();
+
+    } catch(e) {
+        addLog('✖ 网络错误: ' + e.message, 'log-err');
+        showToast('导入失败: ' + e.message, 'error');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '🚀 开始导入';
+}
+
 // ══════════ INIT ══════════
 (async function init() {
     await loadPeopleList();
@@ -1888,6 +2046,459 @@ def api_restore():
         return jsonify({"error": "无效的 zip 文件"}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════
+# HUAWEI ZIP IMPORT
+# ══════════════════════════════════════════════════════════════
+
+@app.route("/api/import-huawei-zip", methods=["POST"])
+def api_import_huawei_zip():
+    """导入华为运动健康加密备份 ZIP 文件
+
+    解密 AES-256 加密的华为备份 → 在内存中解析 JSON 健康数据文件
+    → 提取每日步数/心率/血氧/睡眠 → 增量合并到 HealthDataStore
+    """
+    import pyzipper
+    import traceback
+
+    person_id = request.args.get("person", "").strip()
+    if not person_id:
+        return jsonify({"error": "缺少 person 参数"}), 400
+
+    if "file" not in request.files:
+        return jsonify({"error": "未收到文件"}), 400
+
+    password = request.form.get("password", "").strip()
+    if not password:
+        return jsonify({"error": "请提供解压密码"}), 400
+
+    file = request.files["file"]
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        return jsonify({"error": "请上传 .zip 格式的备份文件"}), 400
+
+    # ── 读入内存 ──
+    try:
+        zip_bytes = io.BytesIO(file.read())
+    except Exception as e:
+        return jsonify({"error": f"读取文件失败: {e}"}), 400
+
+    # ── 解密解压 ──
+    parsed_files = []
+    skipped_files = []
+    error_files = []
+    all_daily_records = {}  # date -> DailyHealthData fields dict
+
+    try:
+        with pyzipper.AESZipFile(zip_bytes, 'r') as zf:
+            zf.setpassword(password.encode('utf-8'))
+            namelist = zf.namelist()
+
+            # 筛选可能包含健康数据的 JSON 文件
+            # 华为导出结构: HealthApp/MotionPath/*.json, HealthApp/HeartRate/*.json, etc.
+            json_files = [n for n in namelist if n.lower().endswith('.json') and not n.startswith('__MACOSX')]
+
+            if not json_files:
+                return jsonify({"error": "ZIP 中未找到 JSON 健康数据文件。请确认这是华为运动健康的备份文件。"}), 400
+
+            for jf_name in json_files:
+                try:
+                    raw = zf.read(jf_name)
+                    text = raw.decode('utf-8', errors='replace')
+                    data = json.loads(text)
+                except Exception:
+                    skipped_files.append(jf_name)
+                    continue
+
+                # ── 解析华为健康数据 JSON 结构 ──
+                extracted = _parse_huawei_json(jf_name, data)
+                if not extracted:
+                    skipped_files.append(jf_name)
+                    continue
+
+                parsed_files.append(jf_name)
+                # 合并到 all_daily_records
+                for date_str, fields in extracted.items():
+                    if date_str not in all_daily_records:
+                        all_daily_records[date_str] = {}
+                    # 智能合并：只覆盖非 None 的新字段
+                    for k, v in fields.items():
+                        if v is not None:
+                            all_daily_records[date_str][k] = v
+
+    except RuntimeError as e:
+        err_msg = str(e)
+        if 'password' in err_msg.lower() or 'Bad password' in err_msg:
+            return jsonify({"error": "解压密码错误，请核实华为发送的密码邮件"}), 400
+        return jsonify({"error": f"解压失败: {err_msg}"}), 400
+    except Exception as e:
+        return jsonify({"error": f"解压失败: {e}"}), 500
+
+    if not all_daily_records:
+        return jsonify({"error": "成功解压但未能从中提取到有效的健康数据。可能此备份不包含运动健康数据。"}), 400
+
+    # ── 合并入 HealthDataStore ──
+    store = load_store(person_id)
+    merge_log = []
+    new_count = 0
+    merged_count = 0
+
+    for date_str in sorted(all_daily_records.keys()):
+        fields = all_daily_records[date_str]
+        fields['date'] = date_str
+        try:
+            record = DailyHealthData.model_validate(fields)
+        except Exception as e:
+            error_files.append(f"{date_str}: {e}")
+            continue
+
+        # 检查是否已有同日数据 — 智能合并
+        existing_idx = None
+        for i, existing in enumerate(store.records):
+            if existing.date == date_str:
+                existing_idx = i
+                break
+
+        if existing_idx is not None:
+            # 已有数据：合并（仅填补 None 字段）
+            old = store.records[existing_idx]
+            old_dict = old.model_dump()
+            updated = False
+            for k, v in record.model_dump().items():
+                if k == 'date':
+                    continue
+                if v is not None and old_dict.get(k) is None:
+                    old_dict[k] = v
+                    updated = True
+            if updated:
+                store.records[existing_idx] = DailyHealthData.model_validate(old_dict)
+                merged_count += 1
+                merge_log.append(f"合并补全 {date_str}")
+            else:
+                merge_log.append(f"跳过 {date_str}（已有完整数据）")
+        else:
+            store.records.append(record)
+            new_count += 1
+            merge_log.append(f"新增 {date_str}")
+
+    # 排序并保存
+    store.records.sort(key=lambda r: r.date)
+    store.last_updated = datetime.now().isoformat()
+    save_store(store, person_id)
+    regenerate_dashboard(store, person_id)
+
+    # 日期范围
+    dates = sorted(all_daily_records.keys())
+    date_range = f"{dates[0]} ~ {dates[-1]}" if dates else "—"
+
+    return jsonify({
+        "success": True,
+        "parsed_files": parsed_files,
+        "skipped_files": skipped_files,
+        "merge_log": merge_log,
+        "summary": {
+            "new_records": new_count,
+            "merged_records": merged_count,
+            "total_files_parsed": len(parsed_files),
+            "total_files_skipped": len(skipped_files),
+            "errors": len(error_files),
+            "date_range": date_range,
+        }
+    })
+
+
+def _parse_huawei_json(filename: str, data) -> dict:
+    """解析华为运动健康导出的 JSON 文件，返回 {date_str: {field: value}} 字典。
+
+    支持的华为数据结构：
+    1. 步数/运动: MotionPath / motion_data
+    2. 心率: HeartRate / heart_rate_data
+    3. 血氧: BloodOxygen / spo2_data
+    4. 睡眠: Sleep / sleep_data
+    5. 通用列表格式: [{"dateTime":..., "value":...}]
+    """
+    result = {}  # date_str -> fields dict
+    fname_lower = filename.lower()
+
+    try:
+        # ── 处理华为健康数据的多种可能的 JSON 结构 ──
+
+        # 情况 A: 顶层直接是列表 [{...}, ...]
+        if isinstance(data, list):
+            for item in data:
+                _extract_item(item, fname_lower, result)
+            return result if result else None
+
+        # 情况 B: 顶层是字典，包含 data / records / items / values 等常见键
+        if isinstance(data, dict):
+            # 尝试从常见的数据键中获取列表
+            for key in ('data', 'records', 'items', 'values', 'dataList',
+                        'heartRate', 'heartRateData', 'heart_rate',
+                        'stepCount', 'step', 'steps',
+                        'bloodOxygen', 'spo2', 'spO2',
+                        'sleep', 'sleepData', 'sleepInfo',
+                        'motionPath', 'sportData', 'exercise'):
+                if key in data and isinstance(data[key], list):
+                    for item in data[key]:
+                        _extract_item(item, fname_lower, result)
+                    if result:
+                        return result
+
+            # 尝试将整个 dict 当作单条数据解析
+            _extract_item(data, fname_lower, result)
+            return result if result else None
+
+    except Exception:
+        return None
+
+    return None
+
+
+def _extract_item(item: dict, fname_lower: str, result: dict):
+    """从单个数据项中提取健康指标并按日期聚合到 result"""
+    if not isinstance(item, dict):
+        return
+
+    # ── 提取日期 ──
+    date_str = None
+    for dkey in ('dateTime', 'date', 'startTime', 'start_time',
+                 'recordDate', 'time', 'timestamp', 'measureTime',
+                 'endTime', 'end_time', 'day'):
+        raw = item.get(dkey)
+        if raw:
+            date_str = _parse_date_str(str(raw))
+            if date_str:
+                break
+
+    if not date_str:
+        return
+
+    if date_str not in result:
+        result[date_str] = {}
+    fields = result[date_str]
+
+    # ── 根据文件名或数据内容推断指标类型 ──
+
+    # 步数相关
+    if any(kw in fname_lower for kw in ('step', 'motion', 'walk', 'sport', 'exercise')):
+        for vkey in ('value', 'steps', 'stepCount', 'step_count', 'count', 'totalSteps'):
+            v = item.get(vkey)
+            if v is not None:
+                try:
+                    val = int(float(str(v)))
+                    if 0 <= val <= 200000:
+                        fields['steps'] = max(fields.get('steps') or 0, val)
+                except (ValueError, TypeError):
+                    pass
+                break
+        # 距离
+        for dkey in ('distance', 'totalDistance', 'total_distance'):
+            v = item.get(dkey)
+            if v is not None:
+                try:
+                    val = round(float(str(v)) / 1000, 2) if float(str(v)) > 100 else round(float(str(v)), 2)  # m->km or already km
+                    if 0 <= val <= 200:
+                        fields['distance_km'] = max(fields.get('distance_km') or 0, val)
+                except (ValueError, TypeError):
+                    pass
+                break
+        # 锻炼时长
+        for ekey in ('duration', 'exerciseTime', 'exercise_time', 'sportTime'):
+            v = item.get(ekey)
+            if v is not None:
+                try:
+                    val = int(float(str(v)))
+                    # 可能是秒或分钟
+                    if val > 1440:  # > 24h in minutes, probably seconds
+                        val = val // 60
+                    if 0 <= val <= 1440:
+                        fields['exercise_minutes'] = (fields.get('exercise_minutes') or 0) + val
+                except (ValueError, TypeError):
+                    pass
+                break
+
+    # 心率相关
+    elif any(kw in fname_lower for kw in ('heart', 'hr', 'pulse', 'heartrate')):
+        for vkey in ('value', 'heartRate', 'heart_rate', 'hr', 'bpm', 'rate'):
+            v = item.get(vkey)
+            if v is not None:
+                try:
+                    val = int(float(str(v)))
+                    if 30 <= val <= 250:
+                        cur_min = fields.get('heart_rate_min')
+                        cur_max = fields.get('heart_rate_max')
+                        fields['heart_rate_min'] = min(cur_min, val) if cur_min is not None else val
+                        fields['heart_rate_max'] = max(cur_max, val) if cur_max is not None else val
+                except (ValueError, TypeError):
+                    pass
+                break
+        # 静息心率
+        for rkey in ('restingHeartRate', 'resting_heart_rate', 'restHr', 'rhr'):
+            v = item.get(rkey)
+            if v is not None:
+                try:
+                    val = int(float(str(v)))
+                    if 30 <= val <= 150:
+                        fields['resting_heart_rate'] = val
+                except (ValueError, TypeError):
+                    pass
+                break
+
+    # 血氧相关
+    elif any(kw in fname_lower for kw in ('oxygen', 'spo2', 'blood')):
+        for vkey in ('value', 'spo2', 'spO2', 'bloodOxygen', 'saturation', 'oxygenSaturation'):
+            v = item.get(vkey)
+            if v is not None:
+                try:
+                    val = int(float(str(v)))
+                    if 50 <= val <= 100:
+                        cur_min = fields.get('spo2_min')
+                        cur_max = fields.get('spo2_max')
+                        fields['spo2_min'] = min(cur_min, val) if cur_min is not None else val
+                        fields['spo2_max'] = max(cur_max, val) if cur_max is not None else val
+                except (ValueError, TypeError):
+                    pass
+                break
+
+    # 睡眠相关
+    elif any(kw in fname_lower for kw in ('sleep',)):
+        # 总时长
+        for tkey in ('totalTime', 'total_time', 'duration', 'sleepTime', 'sleep_time', 'totalSleepTime'):
+            v = item.get(tkey)
+            if v is not None:
+                try:
+                    val = float(str(v))
+                    # 可能是分钟或小时
+                    if val > 24:  # probably minutes
+                        val = round(val / 60, 2)
+                    if 0 < val <= 24:
+                        fields['sleep_hours'] = val
+                except (ValueError, TypeError):
+                    pass
+                break
+        # 睡眠分数
+        for skey in ('score', 'sleepScore', 'sleep_score', 'quality'):
+            v = item.get(skey)
+            if v is not None:
+                try:
+                    val = int(float(str(v)))
+                    if 0 <= val <= 100:
+                        fields['sleep_score'] = val
+                except (ValueError, TypeError):
+                    pass
+                break
+        # 入睡/醒来时间
+        for st_key in ('bedTime', 'bed_time', 'fallAsleepTime', 'sleepStartTime'):
+            v = item.get(st_key)
+            if v:
+                hm = _extract_hm(str(v))
+                if hm:
+                    fields['sleep_start'] = hm
+                break
+        for et_key in ('wakeTime', 'wake_time', 'wakeUpTime', 'sleepEndTime', 'riseTime'):
+            v = item.get(et_key)
+            if v:
+                hm = _extract_hm(str(v))
+                if hm:
+                    fields['sleep_end'] = hm
+                break
+
+    # 通用兜底：尝试通过字段名自动推断
+    else:
+        _generic_extract(item, fields)
+
+
+def _parse_date_str(raw: str) -> str | None:
+    """尝试将多种日期格式解析为 YYYY-MM-DD"""
+    import re
+    raw = raw.strip()
+
+    # Unix 时间戳（毫秒）
+    if raw.isdigit() and len(raw) >= 13:
+        try:
+            dt = datetime.fromtimestamp(int(raw) / 1000)
+            return dt.strftime('%Y-%m-%d')
+        except Exception:
+            pass
+
+    # Unix 时间戳（秒）
+    if raw.isdigit() and 9 <= len(raw) <= 12:
+        try:
+            dt = datetime.fromtimestamp(int(raw))
+            return dt.strftime('%Y-%m-%d')
+        except Exception:
+            pass
+
+    # 常见日期格式
+    for fmt in ('%Y-%m-%d', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f',
+                '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S%z',
+                '%Y/%m/%d', '%Y%m%d', '%d/%m/%Y', '%m/%d/%Y'):
+        try:
+            dt = datetime.strptime(raw[:len(raw)].split('+')[0].split('Z')[0].strip(), fmt)
+            return dt.strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+
+    # 正则兜底
+    m = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', raw)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+
+    return None
+
+
+def _extract_hm(raw: str) -> str | None:
+    """从时间字符串中提取 HH:MM"""
+    import re
+    m = re.search(r'(\d{1,2}):(\d{2})', raw)
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2))
+        if 0 <= h <= 23 and 0 <= mi <= 59:
+            return f"{h:02d}:{mi:02d}"
+    # Unix timestamp
+    if raw.isdigit() and len(raw) >= 10:
+        try:
+            ts = int(raw) / 1000 if len(raw) >= 13 else int(raw)
+            dt = datetime.fromtimestamp(ts)
+            return dt.strftime('%H:%M')
+        except Exception:
+            pass
+    return None
+
+
+def _generic_extract(item: dict, fields: dict):
+    """通用兜底提取：根据键名推断指标类型"""
+    for k, v in item.items():
+        if v is None:
+            continue
+        kl = k.lower()
+        try:
+            if any(w in kl for w in ('step', 'steps')):
+                val = int(float(str(v)))
+                if 0 <= val <= 200000:
+                    fields.setdefault('steps', val)
+            elif kl in ('heartrate', 'heart_rate', 'hr', 'bpm'):
+                val = int(float(str(v)))
+                if 30 <= val <= 250:
+                    fields.setdefault('heart_rate_min', val)
+                    fields.setdefault('heart_rate_max', val)
+            elif kl in ('restingheartrate', 'resting_heart_rate', 'rhr'):
+                val = int(float(str(v)))
+                if 30 <= val <= 150:
+                    fields.setdefault('resting_heart_rate', val)
+            elif any(w in kl for w in ('spo2', 'oxygen', 'saturation')):
+                val = int(float(str(v)))
+                if 50 <= val <= 100:
+                    fields.setdefault('spo2_min', val)
+                    fields.setdefault('spo2_max', val)
+            elif any(w in kl for w in ('sleephour', 'sleep_hour', 'sleeptime', 'sleep_time')):
+                val = float(str(v))
+                if val > 24:
+                    val = round(val / 60, 2)
+                if 0 < val <= 24:
+                    fields.setdefault('sleep_hours', val)
+        except (ValueError, TypeError):
+            continue
 
 
 # ══════════════════════════════════════════════════════════════
