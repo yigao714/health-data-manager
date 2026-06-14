@@ -30,9 +30,37 @@
 * 支持一键调用 Netlify 免费云托管 API，生成专属、高私密性的随机域名网址。
 * 接收人直接在微信中点击链接即可在内置浏览器内完美运行 full-interactive 动态图表（支持 ECharts 动效、多时间窗口切换与置灰防呆逻辑）。
 
+![微信/Netlify 发布效果预览](doc/wechat_netlify_preview.png)
+
 ---
 
 ## 🏗️ 架构与技术栈
+
+### ⚙️ 系统工作流与架构 (Mermaid)
+
+```mermaid
+graph TD
+    A[智能健康设备/手环] -->|健康数据截图| B[微信家庭空间/截图]
+    B -->|拖入/上传| C[AI 智能健康数据管理中心]
+    
+    subgraph 后端服务 (Python Flask)
+        C -->|1. OCR 结构化提取| D[通义千问 Qwen-VL-max]
+        D -->|提取数据| E[AI 双重验证与纠错]
+        E -->|清洗校验 (Pydantic)| F[增量数据合并 & 数据库入库]
+        F -->|数据更新| G[生成内联 HTML 仪表盘]
+        F -->|报告导出| H[Word 阶段性分析报告]
+    end
+    
+    subgraph 前端展示 & 云端共享
+        G -->|一键发布 API| I[Netlify 云端托管]
+        I -->|专属随机加密 URL| J[微信/企业微信端完美共享]
+        G -->|局域网共享| K[家庭 WiFi 终端访问]
+    end
+    
+    style C fill:#f9f,stroke:#333,stroke-width:2px
+    style I fill:#bbf,stroke:#333,stroke-width:2px
+    style J fill:#bfb,stroke:#333,stroke-width:2px
+```
 
 * **后端服务**：Python + Flask (轻量高效)
 * **大模型驱动**：阿里云通义千问 Qwen-VL-max API (零额外本地硬件要求)
