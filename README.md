@@ -109,3 +109,9 @@ python app.py
 如果您觉得这个工具对您照顾家人、记录长辈健康有所帮助，欢迎在右上角点一个 **⭐ Star**！
 
 您的点赞是这个项目持续迭代的动力！有任何功能建议或 Bug 反馈，请在 Issue 区提出。
+
+### 📌 参与贡献
+
+- 📖 阅读 [**贡献指南 (CONTRIBUTING.md)**](CONTRIBUTING.md) 了解开发规范与 PR 流程
+- 🗺️ 查看 [**功能路线图 (FEATURE_ROADMAP.md)**](FEATURE_ROADMAP.md) 了解未来方向和可认领任务
+- 🏷️ 新手推荐从标记有 `good first issue` 的 Issue 开始

@@ -4,6 +4,19 @@
 
 ---
 
+## [v2.1.0] - 2026-06-15
+
+本版本聚焦于**开源社区基础设施建设**，为项目引入了完整的贡献者引导体系与功能路线图，为迎接外部贡献者做好准备。
+
+### 🆕 新增特性
+- **[NEW] 功能路线图 ([FEATURE_ROADMAP.md](FEATURE_ROADMAP.md))**：梳理了 4 个 Phase、21 个 Issue 的完整功能规划，涵盖工程修复（P0/P1/P2）、数据能力增强、用户体验优化和文档社区建设四大方向。其中 12 个条目标记为 `good first issue`，覆盖 CSS 修复、文本替换、死代码清理、Docker 部署、CI 配置等低门槛任务，方便新贡献者快速上手。
+- **[NEW] 贡献指南 ([CONTRIBUTING.md](CONTRIBUTING.md))**：编写了完整的贡献者引导文档，包含开发环境搭建、项目结构说明、分支命名与开发工作流、Python/JS/CSS 代码规范、Conventional Commits 提交规范、PR 模板与审查标准、Issue 报告模板，以及隐私安全红线（禁止提交真实健康数据/API 密钥）。特别强调了项目独有的**阈值单一数据源**原则（Python `get_thresholds()` 与 JS `getThresholds()` 必须同步）。
+
+### 📝 文档更新
+- **README 贡献章节增强**：在 [README.md](README.md) 的"贡献与 Star"章节下新增"参与贡献"子章节，添加了指向 `CONTRIBUTING.md` 和 `FEATURE_ROADMAP.md` 的快捷链接，引导新来者从 `good first issue` 起步。
+
+---
+
 ## [v2.0.0] - 2026-06-15
 
 本版本是项目的一个重大里程碑，推出了多维度健康数据深度分析引擎 v2.0，引入了更细致的临床指南评估指标、交互式图表重构、标准临床免责声明，并编写了完备的自动化测试套件。
