@@ -65,13 +65,13 @@ class PersonProfile(BaseModel):
         """是否服用β受体阻滞剂（影响心率解读）"""
         beta_blockers = ['美托洛尔', '比索洛尔', '阿替洛尔', '普萘洛尔', '卡维地洛',
                          'metoprolol', 'bisoprolol', 'atenolol', 'propranolol', 'carvedilol']
-        return any(med.lower() in [b.lower() for b in beta_blockers]
+        return any(any(b.lower() in med.lower() for b in beta_blockers)
                    for med in self.medications)
 
     @property
     def has_copd(self) -> bool:
-        """是否有COPD/哮喘（影响血氧基线）— 使用关键词包含匹配"""
-        _copd_keywords = ['COPD', '慢阻肺', '阻塞性肺', '哮喘']
+        """是否有COPD（影响血氧基线）— 使用关键词包含匹配"""
+        _copd_keywords = ['COPD', '慢阻肺', '阻塞性肺']
         return any(any(kw in c for kw in _copd_keywords) for c in self.conditions)
 
     def get_thresholds(self) -> dict:
@@ -93,7 +93,7 @@ class PersonProfile(BaseModel):
             'rhr_high': 80,          # 持续>80需关注
             'sleep_score_low': 60,
         }
-        # COPD/哮喘: 放宽血氧阈值（BTS/GOLD 指南）
+        # COPD: 放宽血氧阈值（BTS/GOLD 指南）
         if self.has_copd:
             t['spo2_danger'] = 88    # 待临床确认
             t['spo2_warning'] = 92   # 待临床确认
@@ -261,13 +261,26 @@ class DailyHealthData(BaseModel):
     )
     @classmethod
     def clean_none_strings(cls, v):
-        """将大模型输出的 'None' 或 'null' 字符串（可能带单位如 'None%'）自动转为真正的 None 对象"""
+        """将大模型输出的 'None' 或 'null' 字符串自动转为真正的 None 对象，并清洗数值字段的单位后缀"""
         if isinstance(v, str):
-            val = v.strip().lower()
+            val = v.strip()
+            val_lower = val.lower()
             # 移除常见的后缀或单位
-            val_clean = val.replace('%', '').replace('bpm', '').replace('km', '').replace('min', '').replace('h', '').replace('次/分', '').strip()
+            suffixes = ['%', 'bpm', 'km', 'min', 'h', '次/分', '次/分钟', '步', '小时', '分钟', '公里']
+            val_clean = val_lower
+            for suffix in suffixes:
+                val_clean = val_clean.replace(suffix, '')
+            val_clean = val_clean.strip()
+            
             if val_clean in ('none', 'null', 'nan', '', 'undefined', '-', '--', '无', '暂无') or any(val_clean.startswith(x) for x in ('none', 'null', 'nan')):
                 return None
+                
+            # 如果剥离单位后是一个合法的数值，则返回剥离单位后的干净字符串，由 Pydantic 进行类型强制转换
+            try:
+                float(val_clean)
+                return val_clean
+            except ValueError:
+                pass
         return v
 
     @field_validator('date')

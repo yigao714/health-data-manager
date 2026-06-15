@@ -112,7 +112,7 @@ def _calc_scores(records, profile):
 
     # 血氧（使用集中阈值 + 精度容差）
     thr = profile.get_thresholds()
-    eff_danger = thr['spo2_danger'] - thr['spo2_precision']
+    eff_danger = thr['spo2_danger']  # F12: danger 档不扣减精度容差
     eff_warning = thr['spo2_warning'] - thr['spo2_precision']
     
     has_spo2 = any(r.spo2_min is not None for r in records)
@@ -392,7 +392,7 @@ def generate_docx_report(store: HealthDataStore, output_path: str):
         run.font.color.rgb = RGBColor(0x94, 0xa3, 0xb8)
 
     p = doc.add_paragraph()
-    run = p.add_run('\n⚠️ 本报告由 AI 辅助生成，评分仅供参考，不构成医疗建议。')
+    run = p.add_run('\n⚠️ 本报告由AI健康管理系统辅助生成，仅作为患者日常健康状况趋势的参考。本报告的分析结果与评分不能代替医生的专业临床诊断、治疗建议或药物调整处方。报告中涉及的各项阈值调整和警示提示均基于通用指南或模型，不具有临床法律效力。如遇身体不适，请及时前往医院就诊并遵医嘱。')
     run.font.size = Pt(10)
     run.bold = True
 

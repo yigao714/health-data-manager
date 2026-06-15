@@ -4,6 +4,48 @@
 
 ---
 
+## [v2.0.0] - 2026-06-15
+
+本版本是项目的一个重大里程碑，推出了多维度健康数据深度分析引擎 v2.0，引入了更细致的临床指南评估指标、交互式图表重构、标准临床免责声明，并编写了完备的自动化测试套件。
+
+### 🆕 新增特性
+- **运动详情与多维指标扩充**：数据模型新增 `ExerciseRecord` 模型以存储单次运动详情；[DailyHealthData](file:///d:/Agent/data%20analysis--JY/health_data_schema.py#L124) 扩充了 15+ 字段（涵盖 TruSleep 深睡/浅睡/REM/觉醒/睡眠碎片化/周期数等分期数据，全天平均心率/心率恢复值，夜间均氧/氧减指数 ODI，日均压力和呼吸率等）。
+- **睡眠结构分析**：仪表盘新增深睡/REM 占比评估，辅以直观的 AASM 2023 堆叠条形图。
+- **OSAHS 风险智能筛查**：根据夜间血氧下降事件自动计算 ODI（氧减指数），并引入符合 AASM 指令的四级（正常/轻度/中度/重度）风险评估面板。
+- **多维度临床交叉分析引擎**：
+  - 支持睡眠-心率负相关（交感神经激活）、运动-深睡促进、久坐行为风险（WHO 2020）等多维度交叉预警。
+  - **药物心率控制达标率 (TTR) 分析 (v2.0 Phase 2)**：针对患有高血压/冠心病且服用 β受体阻滞剂 的患者，计算其静息心率控制在 55-65 bpm 区间的达标率（TTR），低于 60% 时给出用药微调医生就诊提示。
+  - **静态无运动高心率警示 (v2.0 Phase 2)**：基于 Gelish 公式计算年龄安全最高心率上限，在日间低活动量且无锻炼记录时，若最高心率突破安全上限的 85% 予以警示，提示心房颤动/高热应激风险。
+- **[F6] 统一交互渲染路径**：重构了仪表盘中点击切换时间窗口（7天/30天/全部）的逻辑，通过统一的 `renderViews` 触发所有图表、雷达图、睡眠评估及交叉预警版块的同步重算与展现。
+- **[F14] 临床免责声明合规化**：在 [dashboard_template.html](file:///d:/Agent/data%20analysis--JY/dashboard_template.html) 页脚及 [report_generator.py](file:///d:/Agent/data%20analysis--JY/report_generator.py) 附录中同步接入了符合中国指南及法规要求的非诊断临床免责声明。
+- **[F8] 移动端时间选择器适配**：优化 CSS 布局，确保在手机端（小于480px）时间窗口选择按钮仍旧可见且排版整齐。
+
+### 🔧 问题修复与优化
+- **[F13] 哮喘分类订正**：将“哮喘”从 [has_copd](file:///d:/Agent/data%20analysis--JY/health_data_schema.py#L72) 关键字列表中剔除，确保仅对慢阻肺（COPD）患者进行血氧阈值放宽判定。
+- **[F12] 精度容差机制调整**：血氧 danger 级别（需关注）直接采用标称的 88% / 90%，不再扣减 2% 传感器精度容差；仅在 warning 级别（留意）扣减 2% 精度偏差，防止健康低氧误报。
+- **[F9] 缩放重置与均值线清理**：在时间窗口切换时，自动重置 ECharts 的 `dataZoom` 缩放滑块，并清理不必要且影响图表趋势阅读的均值辅助线。
+- **[BUGFIX] 药物匹配模糊化**：修复了 [has_beta_blocker](file:///d:/Agent/data%20analysis--JY/health_data_schema.py#L64) 原先因严格的相等性检查而无法匹配包含“缓释片”后缀的药物名称的漏洞。
+- **数据清洗单位剥离**：扩展了 [clean_none_strings](file:///d:/Agent/data%20analysis--JY/health_data_schema.py#L263) 预处理器，使得数值字段带单位后缀（如 `'5432步'`, `'3.21km'`）时，能在剥离单位后正确被 Pydantic 转换为数值类型。
+- **报告生成器同步**：同步修改 [report_generator.py](file:///d:/Agent/data%20analysis--JY/report_generator.py) 中的血氧评分和免责声明，确保 Word 导出报告与仪表盘网页展示效果完全一致。
+
+### 🧪 自动化测试
+- **[NEW] 单元测试套件**：引入 Python 标准 `unittest` 测试框架，在 [tests/](file:///d:/Agent/data%20analysis--JY/tests/) 目录下编写了 [test_schemas.py](file:///d:/Agent/data%20analysis--JY/tests/test_schemas.py)、[test_validators.py](file:///d:/Agent/data%20analysis--JY/tests/test_validators.py) 和 [test_clinical_logic.py](file:///d:/Agent/data%20analysis--JY/tests/test_clinical_logic.py) 三个专项测试，12个测试用例全部一次性通过。
+
+---
+
+## [v1.2.0] - 2026-06-14
+
+本版本新增了华为运动健康官方备份压缩包的一键解密导入功能，极大方便了用户长周期、大批量历史健康数据的同步。
+
+### 🆕 新增特性
+- **AES-256 加密 ZIP 内存解密**：新增 `/api/import-huawei-zip` API，使用 `pyzipper` 库在内存中对华为导出的强加密备份文件进行流式解压缩与解密，数据不落地以最大化保障用户隐私。
+- **前端导入控制面板**：新增备份导入 UI 面板，支持选择加密 zip 文件、输入设定的解压密码，并可查看导入进度与详细运行日志。
+- **智能数据格式适配**：算法支持自适应解析华为备份中生成的 `daily_health_summary` 等内部 JSON 结构。
+- **增量去重合并策略**：导入时按日期自动排重，仅填补缺失的健康指标，保留用户已有的手动修正数据，避免大块覆盖风险。
+- **上传上限提升**：限制提升至 200MB 以支持大型健康备份文件。
+
+---
+
 ## [v1.1.0] - 2026-06-13
 
 本版本主要修复了 AI 提取过程中遇到的各种边缘校验错误，并极大地提升了批量上传截图时的可视化与查重过滤体验。
