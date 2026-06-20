@@ -410,6 +410,30 @@
         .summary-card:nth-child(5) { animation-delay: 0.25s; }
         .summary-card:nth-child(6) { animation-delay: 0.3s; }
 
+        /* ── Theme Variants ── */
+        body.theme-light {
+            --bg-primary: #f1f5f9;
+            --bg-secondary: #ffffff;
+            --bg-card: rgba(255, 255, 255, 0.75);
+            --bg-card-hover: rgba(255, 255, 255, 0.95);
+            --border-card: rgba(99, 102, 241, 0.12);
+            --border-card-hover: rgba(99, 102, 241, 0.25);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+        }
+        body.theme-warm {
+            --bg-primary: #faf6eb;
+            --bg-secondary: #f3edd8;
+            --bg-card: rgba(243, 237, 216, 0.75);
+            --bg-card-hover: rgba(243, 237, 216, 0.95);
+            --border-card: rgba(180, 140, 90, 0.15);
+            --border-card-hover: rgba(180, 140, 90, 0.3);
+            --text-primary: #2d2417;
+            --text-secondary: #5e503f;
+            --text-muted: #8d7e6a;
+        }
+
         /* ── Time Window Selector ── */
         .time-selector {
             display: flex;
@@ -513,12 +537,19 @@
     <div class="date-range" id="date-range"></div>
 </header>
 
-<!-- ── TIME WINDOW SELECTOR ── -->
-<div class="time-selector" id="time-selector">
-    <button class="time-btn" data-days="7">近7天</button>
-    <button class="time-btn" data-days="30">近30天</button>
-    <button class="time-btn" data-days="90">近90天</button>
-    <button class="time-btn active" data-days="0">全部</button>
+<!-- ── CONTROL PANEL ── -->
+<div class="time-selector" id="time-selector" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+    <div class="theme-toggles" style="display:flex; gap:8px;">
+        <button class="time-btn theme-btn" data-theme="dark">暗黑</button>
+        <button class="time-btn theme-btn" data-theme="light">雅白</button>
+        <button class="time-btn theme-btn" data-theme="warm">护眼</button>
+    </div>
+    <div class="time-toggles" style="display:flex; gap:8px;">
+        <button class="time-btn" data-days="7">近7天</button>
+        <button class="time-btn" data-days="30">近30天</button>
+        <button class="time-btn" data-days="90">近90天</button>
+        <button class="time-btn active" data-days="0">全部</button>
+    </div>
 </div>
 
 <div class="container">
@@ -849,6 +880,176 @@ const getChart = (id) => {
 };
 
 // ══════════════════════════════════════════════════════════════
+// INITIAL CHART CONFIG (F13 修复: 恢复被误删的图表完整配置)
+// init 阶段设定图表类型/坐标轴/样式; renderViews() 仅增量更新数据
+// 注意: 此处 series 的 name/顺序必须与 renderViews() 内增量更新保持一致
+// ══════════════════════════════════════════════════════════════
+
+// 活动趋势 (步数柱 + 距离线, 双 Y 轴)
+actChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', backgroundColor: 'rgba(17,24,39,0.95)', borderColor: 'rgba(99,102,241,0.3)', textStyle: { color: '#f1f5f9', fontSize: 13 }, axisPointer: { type: 'cross', crossStyle: { color: '#999' } } },
+    legend: { data: ['步数', '距离 (km)'], textStyle: { color: '#94a3b8' }, top: 0 },
+    grid: { left: 60, right: 60, top: 50, bottom: 40 },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } } },
+    yAxis: [
+        { type: 'value', name: '步数', nameTextStyle: { color: '#64748b' }, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } } },
+        { type: 'value', name: '距离 (km)', nameTextStyle: { color: '#64748b' }, axisLabel: { color: '#64748b' }, splitLine: { show: false } },
+    ],
+    series: [
+        { name: '步数', type: 'bar', data: records.map(r => r.steps), barWidth: '45%', itemStyle: { borderRadius: [6, 6, 0, 0], color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.blue }, { offset: 1, color: 'rgba(99,102,241,0.2)' }]) } },
+        { name: '距离 (km)', type: 'line', yAxisIndex: 1, data: records.map(r => r.distance_km), smooth: true, symbol: 'circle', symbolSize: 8, lineStyle: { color: colors.cyan, width: 3 }, itemStyle: { color: colors.cyan, borderWidth: 2, borderColor: '#111827' }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(34,211,238,0.25)' }, { offset: 1, color: 'rgba(34,211,238,0)' }]) } },
+    ],
+});
+
+// 心率监测 (区间柱 custom + 静息心率线)
+hrChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+        trigger: 'axis', backgroundColor: 'rgba(17,24,39,0.95)', borderColor: 'rgba(99,102,241,0.3)', textStyle: { color: '#f1f5f9', fontSize: 13 },
+        formatter: function(params) {
+            let s = `<strong>${params[0].axisValue}</strong><br/>`;
+            params.forEach(p => {
+                if (p.seriesName === '心率区间') s += `${p.marker} 心率: ${p.data[1]}-${p.data[2]} bpm<br/>`;
+                else s += `${p.marker} ${p.seriesName}: ${p.data} bpm<br/>`;
+            });
+            return s;
+        },
+    },
+    legend: { data: ['心率区间', '静息心率'], textStyle: { color: '#94a3b8' }, top: 0 },
+    grid: { left: 50, right: 20, top: 50, bottom: 40 },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } } },
+    yAxis: { type: 'value', name: '次/分钟', nameTextStyle: { color: '#64748b' }, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } }, min: 40 },
+    series: [
+        {
+            name: '心率区间', type: 'custom',
+            renderItem: function(params, api) {
+                const categoryIndex = api.value(0);
+                const low = api.coord([categoryIndex, api.value(1)]);
+                const high = api.coord([categoryIndex, api.value(2)]);
+                const halfWidth = api.size([1, 0])[0] * 0.25;
+                return {
+                    type: 'group',
+                    children: [{
+                        type: 'rect',
+                        shape: { x: low[0] - halfWidth, y: high[1], width: halfWidth * 2, height: low[1] - high[1] },
+                        style: { fill: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(244,114,182,0.6)' }, { offset: 1, color: 'rgba(244,114,182,0.15)' }]), stroke: 'rgba(244,114,182,0.4)', lineWidth: 1 },
+                    }],
+                };
+            },
+            encode: { x: 0, y: [1, 2] },
+            data: records.map((r, i) => [i, r.heart_rate_min, r.heart_rate_max]),
+            z: 1,
+        },
+        { name: '静息心率', type: 'line', data: records.map(r => r.resting_heart_rate), smooth: true, symbol: 'diamond', symbolSize: 10, lineStyle: { color: colors.red, width: 3, type: 'solid' }, itemStyle: { color: colors.red, borderWidth: 2, borderColor: '#111827' }, z: 2 },
+    ],
+});
+
+// 血氧饱和度 (每日最高/最低线 + 需关注阈值线)
+spo2Chart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', backgroundColor: 'rgba(17,24,39,0.95)', borderColor: 'rgba(99,102,241,0.3)', textStyle: { color: '#f1f5f9', fontSize: 13 } },
+    legend: { data: ['每日最高', '每日最低', '需关注阈值'], textStyle: { color: '#94a3b8' }, top: 0 },
+    grid: { left: 50, right: 20, top: 50, bottom: 40 },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } } },
+    yAxis: { type: 'value', name: '%', min: 85, max: 100, nameTextStyle: { color: '#64748b' }, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } } },
+    series: [
+        { name: '每日最高', type: 'line', data: records.map(r => r.spo2_max), smooth: true, symbol: 'circle', symbolSize: 6, lineStyle: { color: colors.green, width: 2 }, itemStyle: { color: colors.green } },
+        { name: '每日最低', type: 'line', data: records.map(r => r.spo2_min), smooth: true, symbol: 'circle', symbolSize: 6, lineStyle: { color: colors.cyan, width: 2 }, itemStyle: { color: colors.cyan }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(34,211,238,0.3)' }, { offset: 1, color: 'rgba(34,211,238,0.02)' }]), origin: 'start' } },
+        { name: '需关注阈值', type: 'line', data: records.map(() => thresholds.spo2_danger), lineStyle: { color: colors.orange, width: 2, type: 'dashed' }, itemStyle: { color: colors.orange }, symbol: 'none' },
+    ],
+});
+
+// 睡眠分析 (时长柱 + 分数线, 双 Y 轴 + 推荐下限)
+sleepChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', backgroundColor: 'rgba(17,24,39,0.95)', borderColor: 'rgba(99,102,241,0.3)', textStyle: { color: '#f1f5f9', fontSize: 13 } },
+    legend: { data: ['睡眠时长', '睡眠分数', '推荐下限'], textStyle: { color: '#94a3b8' }, top: 0 },
+    grid: { left: 60, right: 60, top: 50, bottom: 40 },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } } },
+    yAxis: [
+        { type: 'value', name: '小时', nameTextStyle: { color: '#64748b' }, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } }, min: 0, max: 10 },
+        { type: 'value', name: '分数', nameTextStyle: { color: '#64748b' }, axisLabel: { color: '#64748b' }, splitLine: { show: false }, min: 0, max: 100 },
+    ],
+    series: [
+        { name: '睡眠时长', type: 'bar', data: records.map(r => r.sleep_hours), barWidth: '40%', itemStyle: { borderRadius: [6, 6, 0, 0], color: function(params) { const v = params.data; if (v < 6) return new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.orange }, { offset: 1, color: 'rgba(251,146,60,0.2)' }]); return new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.purple }, { offset: 1, color: 'rgba(167,139,250,0.15)' }]); } } },
+        { name: '睡眠分数', type: 'line', yAxisIndex: 1, data: records.map(r => r.sleep_score), smooth: true, symbol: 'circle', symbolSize: 8, lineStyle: { color: colors.pink, width: 3 }, itemStyle: { color: colors.pink, borderWidth: 2, borderColor: '#111827' } },
+        { name: '推荐下限', type: 'line', data: records.map(() => thresholds.sleep_low), lineStyle: { color: colors.green, width: 2, type: 'dashed' }, itemStyle: { color: 'transparent' }, symbol: 'none' },
+    ],
+});
+
+// 活动达标 (步数渐变柱 + 推荐目标线 + 低活动线)
+compChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+        trigger: 'axis', backgroundColor: 'rgba(17,24,39,0.95)', borderColor: 'rgba(99,102,241,0.3)', textStyle: { color: '#f1f5f9', fontSize: 13 },
+        formatter: function(params) {
+            const r = records[params[0].dataIndex];
+            const zone = r.steps < 3000 ? '久坐' : r.steps < 5000 ? '低活动' : r.steps < 7000 ? '一般活动' : '活跃';
+            return `<strong>${params[0].axisValue}</strong><br/>步数: ${r.steps.toLocaleString()} (${zone})<br/>距离: ${r.distance_km} km<br/>锻炼: ${r.exercise_minutes} 分钟`;
+        },
+    },
+    legend: { data: ['步数', '推荐目标', '低活动线'], textStyle: { color: '#94a3b8' }, top: 0 },
+    grid: { left: 60, right: 30, top: 60, bottom: 40 },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } } },
+    yAxis: { type: 'value', name: '步数', nameTextStyle: { color: '#64748b' }, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } }, max: (max(records.map(r => r.steps)) || 8000) + 1000 },
+    series: [
+        {
+            name: '步数', type: 'bar', data: records.map(r => r.steps), barWidth: '50%',
+            itemStyle: {
+                borderRadius: [6, 6, 0, 0],
+                color: function(params) {
+                    const v = params.data;
+                    if (v >= 7000) return new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.green }, { offset: 1, color: 'rgba(52,211,153,0.2)' }]);
+                    if (v >= 5000) return new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.cyan }, { offset: 1, color: 'rgba(34,211,238,0.2)' }]);
+                    if (v >= 3000) return new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.yellow }, { offset: 1, color: 'rgba(251,191,36,0.2)' }]);
+                    return new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: colors.orange }, { offset: 1, color: 'rgba(251,146,60,0.2)' }]);
+                },
+            },
+            label: { show: true, position: 'top', color: '#94a3b8', fontSize: 11, formatter: p => p.data != null ? p.data.toLocaleString() : '' },
+        },
+        { name: '推荐目标', type: 'line', data: records.map(() => thresholds.steps_goal), lineStyle: { color: colors.green, width: 2, type: 'dashed' }, symbol: 'none', silent: true },
+        { name: '低活动线', type: 'line', data: records.map(() => thresholds.steps_low), lineStyle: { color: colors.orange, width: 1.5, type: 'dotted' }, symbol: 'none', silent: true },
+    ],
+});
+
+// 健康日历热力图 (heatmap on calendar)
+const allDayFlags = records.map(r => ({ date: r.date, flags: assessDay(r) }));
+const calendarData = allDayFlags.map(d => {
+    const worst = d.flags.some(f => f.level === 'danger') ? 2 : d.flags.some(f => f.level === 'warn') ? 1 : 0;
+    return [d.date, worst];
+});
+const calColors = [colors.green, colors.yellow, colors.red];
+const calLabels = ['正常', '留意', '需关注'];
+calendarChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+        formatter: function(p) {
+            if (!p.data) return '';
+            const [date, level] = p.data;
+            const dayFlags = allDayFlags.find(d => d.date === date);
+            let html = `<strong>${date}</strong> · <span style="color:${calColors[level]}">${calLabels[level]}</span><br/>`;
+            if (dayFlags) {
+                dayFlags.flags.forEach(f => { if (f.level !== 'good') html += `${f.icon} ${f.text}<br/>`; });
+                if (dayFlags.flags.every(f => f.level === 'good')) html += '💚 各项指标正常';
+            }
+            return html;
+        },
+    },
+    visualMap: { show: false, min: 0, max: 2, inRange: { color: ['rgba(52,211,153,0.6)', 'rgba(251,191,36,0.65)', 'rgba(248,113,113,0.7)'] } },
+    calendar: {
+        range: [records[0].date, records[records.length - 1].date],
+        cellSize: ['auto', 22], top: 30, left: 50, right: 20, orient: 'horizontal',
+        splitLine: { lineStyle: { color: 'rgba(99,102,241,0.12)' } },
+        itemStyle: { borderWidth: 2, borderColor: 'rgba(10,14,26,0.8)', borderRadius: 4 },
+        dayLabel: { color: '#64748b', fontSize: 11 },
+        monthLabel: { color: '#94a3b8', fontSize: 12 },
+        yearLabel: { show: false },
+    },
+    series: [{ type: 'heatmap', coordinateSystem: 'calendar', data: calendarData, emphasis: { itemStyle: { borderColor: colors.blue, borderWidth: 2 } } }],
+});
+
+// ══════════════════════════════════════════════════════════════
 // UNIFIED RENDER FUNCTION (F6: single source of truth)
 // 摘要卡、评分雷达、各折线柱状图、睡眠分期、ODI筛查、交叉预警、日历及表格全部在此渲染
 // ══════════════════════════════════════════════════════════════
@@ -981,8 +1182,8 @@ function renderViews(filtered, label) {
     });
     const sriStd = _stdDev(sleepStartHrs);
     const sriMin = sriStd * 60;
-    const sriScore = sriMin < 30 ? 100 : sriMin < 60 ? 75 : sriMin < 90 ? 50 : 25;
-    const sleepScore = Math.round(durScore * 0.3 + (fS.avgSleepScore || 70) * 0.5 + sriScore * 0.2);
+    const sriScoreVal = sriMin < 30 ? 100 : sriMin < 60 ? 75 : sriMin < 90 ? 50 : 25;
+    const sleepScore = Math.round(durScore * 0.3 + (fS.avgSleepScore || 70) * 0.5 + sriScoreVal * 0.2);
 
     const overall = Math.round(actScore * 0.3 + heartScore * 0.3 + sleepScore * 0.4);
 
@@ -1616,874 +1817,19 @@ if (hasProfile) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 8. DAILY RISK ASSESSMENT (替代 Pearson 相关性)
-// 理论基础: WHO运动指南, AASM睡眠指南, AHA心率参考
-// ══════════════════════════════════════════════════════════════
-
-// 阈值已集中定义于 getThresholds(profile)（见文件顶部），此处不再重复
-
-function assessDay(r) {
-    const flags = [];
-    // 实际触发阈值 = 标称阈值 - 精度容差（腕式传感器精度±2-3%）
-    const effDanger = thresholds.spo2_danger - thresholds.spo2_precision;
-    const effWarning = thresholds.spo2_warning - thresholds.spo2_precision;
-    // 步数
-    if (r.steps != null && r.steps < thresholds.steps_low)
-        flags.push({ level: 'warn', icon: '🚶', text: `步数偏低 ${r.steps}`, ref: 'WHO运动指南' });
-    if (r.steps != null && r.steps >= thresholds.steps_goal)
-        flags.push({ level: 'good', icon: '✅', text: `步数达标 ${r.steps}`, ref: 'Lancet 2022' });
-    // 血氧（三档：需关注 / 留意 / 正常，含精度容差）
-    if (r.spo2_min != null && r.spo2_min < effDanger)
-        flags.push({ level: 'danger', icon: '🔴', text: `血氧需关注 ${r.spo2_min}%，建议临床复测`, ref: '腕式参考' });
-    else if (r.spo2_min != null && r.spo2_min < effWarning)
-        flags.push({ level: 'warn', icon: '🟡', text: `血氧留意 ${r.spo2_min}%`, ref: '腕式参考·非诊断' });
-    // 睡眠
-    if (r.sleep_hours != null && r.sleep_hours < thresholds.sleep_low)
-        flags.push({ level: 'danger', icon: '😫', text: `睡眠不足 ${r.sleep_hours.toFixed(1)}h`, ref: 'NSF指南' });
-    // 睡眠分数
-    if (r.sleep_score != null && r.sleep_score < thresholds.sleep_score_low)
-        flags.push({ level: 'warn', icon: '📉', text: `睡眠质量差 ${r.sleep_score}分`, ref: '' });
-    // 静息心率
-    if (r.resting_heart_rate != null && r.resting_heart_rate > thresholds.rhr_high)
-        flags.push({ level: 'warn', icon: '💓', text: `静息心率偏高 ${r.resting_heart_rate}`, ref: 'AHA参考' });
-    // 无风险
-    if (flags.length === 0)
-        flags.push({ level: 'good', icon: '💚', text: '各项指标正常', ref: '' });
-    return flags;
-}
-
-const levelColors = { danger: colors.red, warn: colors.orange, good: colors.green };
-const levelBg = { danger: 'rgba(248,113,113,0.08)', warn: 'rgba(251,146,60,0.08)', good: 'rgba(52,211,153,0.06)' };
-
-// ── 汇总统计 + 异常驱动展示 ──
-const allDayFlags = records.map(r => ({ date: r.date, flags: assessDay(r) }));
-
-
-// [F6] 风险评估由 renderViews() 统一渲染
-
-
-// ══════════════════════════════════════════════════════════════
-// 8b. CALENDAR HEATMAP — 健康日历
-// ══════════════════════════════════════════════════════════════
-const calendarChart = echarts.init(document.getElementById('chart-calendar'));
-
-// 构建日历数据: [date, riskLevel] — 0=正常, 1=留意, 2=需关注
-const calendarData = allDayFlags.map(d => {
-    const worst = d.flags.some(f => f.level === 'danger') ? 2 : d.flags.some(f => f.level === 'warn') ? 1 : 0;
-    return [d.date, worst];
-});
-
-// 确定日历范围
-const firstDate = records[0].date;
-const lastDate = records[records.length - 1].date;
-
-const calColors = [colors.green, colors.yellow, colors.red];
-const calLabels = ['正常', '留意', '需关注'];
-
-calendarChart.setOption({
-    backgroundColor: 'transparent',
-    tooltip: {
-        formatter: function(p) {
-            if (!p.data) return '';
-            const [date, level] = p.data;
-            const dayFlags = allDayFlags.find(d => d.date === date);
-            let html = `<strong>${date}</strong> · <span style="color:${calColors[level]}">${calLabels[level]}</span><br/>`;
-            if (dayFlags) {
-                dayFlags.flags.forEach(f => {
-                    if (f.level !== 'good') html += `${f.icon} ${f.text}<br/>`;
-                });
-                if (dayFlags.flags.every(f => f.level === 'good')) html += '💚 各项指标正常';
-            }
-            return html;
-        },
-    },
-    visualMap: {
-        show: false,
-        min: 0,
-        max: 2,
-        inRange: {
-            color: ['rgba(52,211,153,0.6)', 'rgba(251,191,36,0.65)', 'rgba(248,113,113,0.7)'],
-        },
-    },
-    calendar: {
-        range: [firstDate, lastDate],
-        cellSize: ['auto', 22],
-        top: 30,
-        left: 50,
-        right: 20,
-        orient: 'horizontal',
-        splitLine: { lineStyle: { color: 'rgba(99,102,241,0.12)' } },
-        itemStyle: {
-            borderWidth: 2,
-            borderColor: 'rgba(10,14,26,0.8)',
-            borderRadius: 4,
-        },
-        dayLabel: { color: '#64748b', fontSize: 11 },
-        monthLabel: { color: '#94a3b8', fontSize: 12 },
-        yearLabel: { show: false },
-    },
-    series: [{
-        type: 'heatmap',
-        coordinateSystem: 'calendar',
-        data: calendarData,
-        emphasis: {
-            itemStyle: {
-                borderColor: colors.blue,
-                borderWidth: 2,
-            },
-        },
-    }],
-});
-
-// ══════════════════════════════════════════════════════════════
-// 9. SLEEP REGULARITY INDEX + SCHEDULE SCATTER
-// 理论基础: Lunsford-Avery 2018 (Sleep), Phillips 2017 (Sci Rep)
-// SRI = 入睡/醒来时间标准差越小越好
-// ══════════════════════════════════════════════════════════════
-function timeToHours(t) {
-    if (!t) return null;
-    const [h, m] = t.split(':').map(Number);
-    let hrs = h + m / 60;
-    if (hrs < 12) hrs += 24; // 处理跨午夜
-    return hrs;
-}
-
-function stdDev(arr) {
-    const f = arr.filter(v => v != null);
-    if (f.length < 2) return 0;
-    const m = f.reduce((a,b) => a+b,0) / f.length;
-    return Math.sqrt(f.reduce((a,v) => a + (v-m)*(v-m), 0) / (f.length - 1));
-}
-
-const sleepStartHours = records.map(r => timeToHours(r.sleep_start));
-const sleepEndHours = records.map(r => {
-    if (!r.sleep_end) return null;
-    const [h, m] = r.sleep_end.split(':').map(Number);
-    return h + m / 60;
-});
-
-const startStd = stdDev(sleepStartHours);
-const endStd = stdDev(sleepEndHours);
-const avgStartMin = avg(sleepStartHours) * 60;
-const avgEndMin = avg(sleepEndHours) * 60;
-
-// SRI 评分: 标准差<30min=优秀, <60min=良好, <90min=一般, >=90min=差
-function sriScore(sd) {
-    const sdMin = sd * 60;
-    if (sdMin < 30) return { score: '优秀', color: colors.green, sdMin: sdMin.toFixed(0) };
-    if (sdMin < 60) return { score: '良好', color: colors.cyan, sdMin: sdMin.toFixed(0) };
-    if (sdMin < 90) return { score: '一般', color: colors.yellow, sdMin: sdMin.toFixed(0) };
-    return { score: '差', color: colors.orange, sdMin: sdMin.toFixed(0) };
-}
-
-const startSRI = sriScore(startStd);
-const endSRI = sriScore(endStd);
-
-function minsToTime(totalMins) {
-    const h = Math.floor(totalMins / 60) % 24;
-    const m = Math.round(totalMins % 60);
-    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-}
-
-document.getElementById('sleep-regularity-summary').innerHTML = `
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-    <div style="padding:12px 16px;border-radius:10px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.15);">
-        <div style="font-size:12px;color:var(--text-muted);">入睡时间规律性</div>
-        <div style="font-size:20px;font-weight:700;color:${startSRI.color};">${startSRI.score}</div>
-        <div style="font-size:11px;color:var(--text-secondary);">均值 ${minsToTime(avgStartMin)} · 标准差 ±${startSRI.sdMin}分钟</div>
-    </div>
-    <div style="padding:12px 16px;border-radius:10px;background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.15);">
-        <div style="font-size:12px;color:var(--text-muted);">醒来时间规律性</div>
-        <div style="font-size:20px;font-weight:700;color:${endSRI.color};">${endSRI.score}</div>
-        <div style="font-size:11px;color:var(--text-secondary);">均值 ${minsToTime(avgEndMin)} · 标准差 ±${endSRI.sdMin}分钟</div>
-    </div>
-</div>
-<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding:6px 10px;background:rgba(99,102,241,0.04);border-radius:6px;">
-    📖 依据: Sleep Regularity Index (SRI) 研究表明，作息规律性与心血管风险独立相关 (Lunsford-Avery 2018, <i>Sleep</i>)。标准差&lt;30分钟为优秀。
-</div>`;
-
-// Schedule scatter chart (enhanced)
-const schedChart = echarts.init(document.getElementById('chart-schedule'));
-schedChart.setOption({
-    backgroundColor: 'transparent',
-    tooltip: {
-        backgroundColor: 'rgba(17,24,39,0.95)',
-        borderColor: 'rgba(99,102,241,0.3)',
-        textStyle: { color: '#f1f5f9', fontSize: 13 },
-        formatter: function(p) {
-            const r = records[p.dataIndex];
-            if (p.seriesName === '入睡时间') return `${p.name}<br/>入睡: ${r.sleep_start}`;
-            if (p.seriesName === '醒来时间') return `${p.name}<br/>醒来: ${r.sleep_end}`;
-            return '';
-        },
-    },
-    legend: {
-        data: ['入睡时间', '醒来时间', '入睡均值', '醒来均值'],
-        textStyle: { color: '#94a3b8' },
-        top: 0,
-    },
-    grid: { left: 60, right: 20, top: 50, bottom: 40 },
-    xAxis: {
-        type: 'category',
-        data: dates,
-        axisLabel: { color: '#64748b', fontSize: 11 },
-        axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } },
-    },
-    yAxis: {
-        type: 'value',
-        name: '时刻',
-        min: 4,
-        max: 26,
-        interval: 2,
-        nameTextStyle: { color: '#64748b' },
-        axisLabel: {
-            color: '#64748b',
-            formatter: function(v) {
-                const h = v >= 24 ? v - 24 : v;
-                return (h < 10 ? '0' : '') + h + ':00';
-            },
-        },
-        splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } },
-    },
-    series: [
-        {
-            name: '入睡时间',
-            type: 'scatter',
-            data: sleepStartHours,
-            symbolSize: 14,
-            itemStyle: { color: colors.purple, shadowBlur: 10, shadowColor: 'rgba(167,139,250,0.4)' },
-        },
-        {
-            name: '醒来时间',
-            type: 'scatter',
-            data: sleepEndHours,
-            symbolSize: 14,
-            itemStyle: { color: colors.cyan, shadowBlur: 10, shadowColor: 'rgba(34,211,238,0.4)' },
-        },
-        {
-            name: '入睡均值',
-            type: 'line',
-            data: records.map(() => avg(sleepStartHours)),
-            lineStyle: { color: colors.purple, width: 1.5, type: 'dashed' },
-            symbol: 'none',
-            silent: true,
-        },
-        {
-            name: '醒来均值',
-            type: 'line',
-            data: records.map(() => avg(sleepEndHours)),
-            lineStyle: { color: colors.cyan, width: 1.5, type: 'dashed' },
-            symbol: 'none',
-            silent: true,
-        },
-    ],
-});
-
-// ══════════════════════════════════════════════════════════════
-// 9b. ACTIVITY COMPLIANCE (WHO 2020)
-// 理论基础: WHO 2020 Physical Activity Guidelines
-//   - 成人每周≥150min中等强度 或 ≥75min高强度
-//   - 每日步数: Tudor-Locke 2011分类, Lancet 2022 meta-analysis
-// ══════════════════════════════════════════════════════════════
-const compChart = echarts.init(document.getElementById('chart-compliance'));
-
-// 步数分级色块
-const stepZones = [
-    { min: 0, max: 3000, label: '久坐', color: 'rgba(248,113,113,0.15)' },
-    { min: 3000, max: 5000, label: '低活动', color: 'rgba(251,146,60,0.12)' },
-    { min: 5000, max: 7000, label: '一般', color: 'rgba(251,191,36,0.10)' },
-    { min: 7000, max: 10000, label: '活跃', color: 'rgba(52,211,153,0.12)' },
-    { min: 10000, max: 15000, label: '高活跃', color: 'rgba(34,211,238,0.10)' },
-];
-
-const maxStepVal = Math.max(max(records.map(r => r.steps)), 8000);
-
-compChart.setOption({
-    backgroundColor: 'transparent',
-    tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(17,24,39,0.95)',
-        borderColor: 'rgba(99,102,241,0.3)',
-        textStyle: { color: '#f1f5f9', fontSize: 13 },
-        formatter: function(params) {
-            const r = records[params[0].dataIndex];
-            const zone = r.steps < 3000 ? '久坐' : r.steps < 5000 ? '低活动' : r.steps < 7000 ? '一般活动' : '活跃';
-            return `<strong>${params[0].axisValue}</strong><br/>
-                步数: ${r.steps.toLocaleString()} (${zone})<br/>
-                距离: ${r.distance_km} km<br/>
-                锻炼: ${r.exercise_minutes} 分钟`;
-        },
-    },
-    legend: {
-        data: ['步数', '推荐目标', '低活动线'],
-        textStyle: { color: '#94a3b8' },
-        top: 0,
-    },
-    grid: { left: 60, right: 30, top: 60, bottom: 40 },
-    xAxis: {
-        type: 'category',
-        data: dates,
-        axisLabel: { color: '#64748b', fontSize: 11 },
-        axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } },
-    },
-    yAxis: {
-        type: 'value',
-        name: '步数',
-        nameTextStyle: { color: '#64748b' },
-        axisLabel: { color: '#64748b' },
-        splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } },
-        max: maxStepVal + 1000,
-    },
-    series: [
-        {
-            name: '步数',
-            type: 'bar',
-            data: records.map(r => r.steps),
-            barWidth: '50%',
-            itemStyle: {
-                borderRadius: [6, 6, 0, 0],
-                color: function(params) {
-                    const v = params.data;
-                    if (v >= 7000) return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: colors.green }, { offset: 1, color: 'rgba(52,211,153,0.2)' }]);
-                    if (v >= 5000) return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: colors.cyan }, { offset: 1, color: 'rgba(34,211,238,0.2)' }]);
-                    if (v >= 3000) return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: colors.yellow }, { offset: 1, color: 'rgba(251,191,36,0.2)' }]);
-                    return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: colors.orange }, { offset: 1, color: 'rgba(251,146,60,0.2)' }]);
-                },
-            },
-            label: {
-                show: true,
-                position: 'top',
-                color: '#94a3b8',
-                fontSize: 11,
-                formatter: p => p.data.toLocaleString(),
-            },
-        },
-        {
-            name: '推荐目标',
-            type: 'line',
-            data: records.map(() => 7000),
-            lineStyle: { color: colors.green, width: 2, type: 'dashed' },
-            symbol: 'none',
-            silent: true,
-        },
-        {
-            name: '低活动线',
-            type: 'line',
-            data: records.map(() => 3000),
-            lineStyle: { color: colors.orange, width: 1.5, type: 'dotted' },
-            symbol: 'none',
-            silent: true,
-        },
-    ],
-});
-
-// 达标率计算
-const daysAbove7000 = records.filter(r => r.steps >= 7000).length;
-const daysAbove5000 = records.filter(r => r.steps >= 5000).length;
-const daysBelow3000 = records.filter(r => r.steps < 3000).length;
-
-// ══════════════════════════════════════════════════════════════
-// 10. DATA TABLE
-// ══════════════════════════════════════════════════════════════
-function sleepHoursToStr(h) {
-    if (h == null) return '-';
-    const hrs = Math.floor(h);
-    const mins = Math.round((h - hrs) * 60);
-    return `${hrs}h${mins}m`;
-}
-
-// [F6] 数据表由 renderViews() 统一渲染
-
-
-// ══════════════════════════════════════════════════════════════
-// RESPONSIVE RESIZE
-// ══════════════════════════════════════════════════════════════
-const allCharts = [radarChart, actChart, hrChart, spo2Chart, sleepChart, calendarChart, schedChart, compChart];
-window.addEventListener('resize', () => {
-    allCharts.forEach(c => c.resize());
-});
-
-// ══════════════════════════════════════════════════════════════
-// UNIFIED RENDER FUNCTION (F6: single source of truth)
-// 摘要卡、风险评估、数据表由此函数统一渲染
-// 初始加载与时间窗口切换均调用此函数，消除重复模板
-// ══════════════════════════════════════════════════════════════
-function renderViews(filtered, label) {
-    const fDates = filtered.map(r => r.date.slice(5));
-
-    // ── Header ──
-    document.getElementById('date-range').textContent =
-        `数据范围: ${filtered[0].date} 至 ${filtered[filtered.length-1].date} · 共 ${filtered.length} 天${label}`;
-
-    // ── Summary Cards (F7: 血氧颜色使用个体化阈值 effWarningDisplay) ──
-    const fS = {
-        avgSteps: avg(filtered.map(r => r.steps)),
-        maxSteps: max(filtered.map(r => r.steps)),
-        avgDistance: avg(filtered.map(r => r.distance_km)),
-        maxDistance: max(filtered.map(r => r.distance_km)),
-        avgRestHR: avg(filtered.map(r => r.resting_heart_rate)),
-        avgSpo2Min: avg(filtered.map(r => r.spo2_min)),
-        avgSleep: avg(filtered.map(r => r.sleep_hours)),
-        avgSleepScore: avg(filtered.map(r => r.sleep_score)),
-    };
-
-    document.getElementById('summary-cards').innerHTML = [
-        { icon: '🚶', label: '日均步数', value: fS.avgSteps != null ? Math.round(fS.avgSteps).toLocaleString() : '无数据',
-          sub: fS.maxSteps != null ? `最高 ${fS.maxSteps.toLocaleString()} 步` : '暂无数据', cls: fS.avgSteps != null ? (fS.avgSteps >= 3000 ? 'trend-up' : 'trend-down') : 'trend-stable' },
-        { icon: '📏', label: '日均距离', value: fS.avgDistance != null ? fmt(fS.avgDistance) + ' km' : '无数据',
-          sub: fS.maxDistance != null ? `最远 ${fmt(fS.maxDistance)} km` : '暂无数据', cls: 'trend-stable' },
-        { icon: '❤️', label: '平均静息心率', value: fS.avgRestHR != null ? Math.round(fS.avgRestHR) + ' bpm' : '无数据',
-          sub: fS.avgRestHR != null ? `范围 ${min(filtered.map(r=>r.resting_heart_rate))}-${max(filtered.map(r=>r.resting_heart_rate))}` : '暂无数据',
-          cls: fS.avgRestHR != null ? (fS.avgRestHR >= 60 && fS.avgRestHR <= 80 ? 'trend-up' : 'trend-down') : 'trend-stable' },
-        { icon: '🫁', label: '平均血氧最低', value: fS.avgSpo2Min != null ? fmt(fS.avgSpo2Min, 0) + '%' : '无数据',
-          sub: fS.avgSpo2Min != null ? `最低 ${min(filtered.map(r=>r.spo2_min))}%` : '暂无数据',
-          cls: fS.avgSpo2Min != null ? (fS.avgSpo2Min >= effWarningDisplay ? 'trend-up' : 'trend-down') : 'trend-stable' },
-        { icon: '😴', label: '平均睡眠时长', value: fS.avgSleep != null ? fmt(fS.avgSleep) + ' h' : '无数据',
-          sub: fS.avgSleep != null ? `${min(filtered.map(r=>r.sleep_hours)).toFixed(1)}-${max(filtered.map(r=>r.sleep_hours)).toFixed(1)} 小时` : '暂无数据',
-          cls: fS.avgSleep != null ? (fS.avgSleep >= 7 ? 'trend-up' : 'trend-down') : 'trend-stable' },
-        { icon: '⭐', label: '平均睡眠分数', value: fS.avgSleepScore != null ? Math.round(fS.avgSleepScore) + ' 分' : '无数据',
-          sub: fS.avgSleepScore != null ? `${min(filtered.map(r=>r.sleep_score))}-${max(filtered.map(r=>r.sleep_score))} 分` : '暂无数据',
-          cls: fS.avgSleepScore != null ? (fS.avgSleepScore >= 80 ? 'trend-up' : 'trend-down') : 'trend-stable' },
-    ].map(c => `
-        <div class="summary-card" style="opacity:1;transform:none;">
-            <div class="card-icon">${c.icon}</div>
-            <div class="card-label">${c.label}</div>
-            <div class="card-value">${c.value}</div>
-            <div class="card-sub ${c.cls}">${c.sub}</div>
-        </div>
-    `).join('');
-
-    // ── Risk Assessment (F6: 含血氧标记日行，三视图统一) ──
-    const fFlags = filtered.map(r => ({ date: r.date, flags: assessDay(r) }));
-    const fDanger = fFlags.filter(d => d.flags.some(f => f.level === 'danger'));
-    const fWarn = fFlags.filter(d => d.flags.some(f => f.level === 'warn') && !d.flags.some(f => f.level === 'danger'));
-    const fGood = fFlags.filter(d => d.flags.every(f => f.level === 'good'));
-    const fSpo2Dates = fFlags.filter(d => d.flags.some(f => f.text && f.text.includes('血氧'))).map(d => d.date.slice(5));
-
-    let riskHTML = `<div style="padding:12px 16px;border-radius:10px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.15);margin-bottom:12px;font-size:13px;">
-        <div style="font-weight:600;margin-bottom:6px;">📋 ${filtered.length}天总览${label}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--text-secondary);">
-            <span><span style="color:${colors.red}">●</span> 需关注: ${fDanger.length}天</span>
-            <span><span style="color:${colors.orange}">●</span> 留意: ${fWarn.length}天</span>
-            <span><span style="color:${colors.green}">●</span> 正常: ${fGood.length}天</span>
-        </div>
-        ${fSpo2Dates.length > 0 ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted);">🫁 血氧标记日: ${fSpo2Dates.join('、')}（阈值<${effWarningDisplay}%，含${thresholds.spo2_precision}%传感器容差）</div>` : ''}
-        <div style="margin-top:4px;font-size:11px;color:var(--text-muted);">阈值: 步数<${thresholds.steps_low} · 血氧<${effDangerDisplay}%需关注/<${effWarningDisplay}%留意 · 睡眠<${thresholds.sleep_low}h</div>
-    </div>`;
-
-    riskHTML += '<div style="display:grid;gap:6px;max-height:360px;overflow-y:auto;padding-right:4px;">';
-    fFlags.forEach(d => {
-        const worstLevel = d.flags.some(f => f.level === 'danger') ? 'danger' : d.flags.some(f => f.level === 'warn') ? 'warn' : 'good';
-        if (worstLevel === 'good') return;
-        riskHTML += `<div style="display:flex;align-items:flex-start;gap:12px;padding:8px 14px;border-radius:10px;background:${levelBg[worstLevel]};border:1px solid ${levelColors[worstLevel]}22;">`;
-        riskHTML += `<div style="min-width:55px;font-weight:600;color:${colors.blue};font-size:13px;">${d.date.slice(5)}</div>`;
-        riskHTML += '<div style="display:flex;flex-wrap:wrap;gap:5px;">';
-        d.flags.forEach(f => {
-            if (f.level === 'good') return;
-            riskHTML += `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;font-size:12px;color:${levelColors[f.level]};background:${levelColors[f.level]}15;">
-                ${f.icon} ${f.text}${f.ref ? ` <span style="color:var(--text-muted);font-size:10px;">(${f.ref})</span>` : ''}
-            </span>`;
-        });
-        riskHTML += '</div></div>';
-    });
-    if (fGood.length > 0) {
-        riskHTML += `<div style="padding:8px 14px;border-radius:10px;background:${levelBg.good};border:1px solid ${levelColors.good}22;font-size:12px;color:${colors.green};">
-            💚 ${fGood.map(d => d.date.slice(5)).join('、')} — 各项指标正常
-        </div>`;
-    }
-    riskHTML += '</div>';
-    document.getElementById('risk-assessment').innerHTML = riskHTML;
-
-    // ── Update Charts (F9: 重置 dataZoom 缩放状态) ──
-    const dzReset = [{start:0, end:100}, {start:0, end:100}];
-    actChart.setOption({xAxis:{data:fDates}, dataZoom:dzReset, series:[{data:filtered.map(r=>r.steps)},{data:filtered.map(r=>r.distance_km)}]});
-    hrChart.setOption({xAxis:{data:fDates}, dataZoom:dzReset, series:[{data:filtered.map((r,i)=>[i,r.heart_rate_min,r.heart_rate_max])},{data:filtered.map(r=>r.resting_heart_rate)}]});
-    spo2Chart.setOption({xAxis:{data:fDates}, dataZoom:dzReset, series:[{data:filtered.map(r=>r.spo2_max)},{data:filtered.map(r=>r.spo2_min)},{data:filtered.map(()=>effDangerDisplay)}]});
-    sleepChart.setOption({xAxis:{data:fDates}, dataZoom:dzReset, series:[{data:filtered.map(r=>r.sleep_hours)},{data:filtered.map(r=>r.sleep_score)},{data:filtered.map(()=>7)}]});
-    compChart.setOption({xAxis:{data:fDates}, dataZoom:dzReset, series:[{data:filtered.map(r=>r.steps)},{data:filtered.map(()=>7000)},{data:filtered.map(()=>3000)}]});
-
-    // ── Calendar: 过滤到当前时间窗口 ──
-    const fCalFlags = filtered.map(r => ({date: r.date, flags: assessDay(r)}));
-    const fCalData = fCalFlags.map(d => {
-        const worst = d.flags.some(f => f.level === 'danger') ? 2 : d.flags.some(f => f.level === 'warn') ? 1 : 0;
-        return [d.date, worst];
-    });
-    calendarChart.setOption({
-        calendar: { range: [filtered[0].date, filtered[filtered.length-1].date] },
-        series: [{ data: fCalData }]
-    });
-
-    // ── Data Table ──
-    let tableHTML = `<table class="data-table">
-    <thead><tr>
-        <th>日期</th><th>步数</th><th>距离</th><th>锻炼</th>
-        <th>心率范围</th><th>静息心率</th><th>血氧范围</th>
-        <th>睡眠</th><th>入睡</th><th>醒来</th><th>睡眠分</th>
-    </tr></thead><tbody>`;
-    filtered.forEach(r => {
-        const stepsClass = r.steps < 2000 ? 'highlight-low' : r.steps >= 5000 ? 'highlight-good' : '';
-        const sleepClass = r.sleep_hours < 6 ? 'highlight-low' : r.sleep_hours >= 7 ? 'highlight-good' : '';
-        const scoreClass = r.sleep_score < 60 ? 'highlight-low' : r.sleep_score >= 80 ? 'highlight-good' : '';
-        tableHTML += `<tr>
-            <td style="font-weight:600;color:${colors.blue}">${r.date}</td>
-            <td class="${stepsClass}">${r.steps?.toLocaleString() ?? '-'}</td>
-            <td>${r.distance_km ?? '-'} km</td>
-            <td>${r.exercise_minutes ?? 0} min</td>
-            <td>${r.heart_rate_min}-${r.heart_rate_max}</td>
-            <td>${r.resting_heart_rate ?? '-'}</td>
-            <td>${r.spo2_min}%-${r.spo2_max}%</td>
-            <td class="${sleepClass}">${sleepHoursToStr(r.sleep_hours)}</td>
-            <td>${r.sleep_start ?? '-'}</td>
-            <td>${r.sleep_end ?? '-'}</td>
-            <td class="${scoreClass}">${r.sleep_score ?? '-'}</td>
-        </tr>`;
-    });
-    tableHTML += '</tbody></table>';
-    document.getElementById('data-table-wrapper').innerHTML = tableHTML;
-}
-
-// ── 初始渲染 ──
-renderViews(records, '');
-
-// ── 时间窗口切换 (F6: 调用统一渲染函数) ──
-document.querySelectorAll('.time-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-        document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        const days = parseInt(this.dataset.days);
-        const filtered = days === 0 ? records : records.slice(-days);
-        const label = days > 0 ? ` (近${days}天)` : '';
-        renderViews(filtered, label);
-    });
-});
-
-
-// ── Intersection Observer for fade-in ──
-const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-        if (entry.isIntersecting) {
-            entry.target.style.animationPlayState = 'running';
-        }
-    });
-}, { threshold: 0.1 });
-
-document.querySelectorAll('.fade-in').forEach(el => {
-    el.style.animationPlayState = 'paused';
-    observer.observe(el);
-});
-// Immediately play visible ones
-setTimeout(() => {
-    document.querySelectorAll('.fade-in').forEach(el => {
-        const rect = el.getBoundingClientRect();
-        if (rect.top < window.innerHeight) {
-            el.style.animationPlayState = 'running';
-        }
-    });
-}, 50);
-
-// ══════════════════════════════════════════════════════════════
-// 10. SLEEP ARCHITECTURE (TruSleep 深睡/浅睡/REM/觉醒)
-// 理论基础: AASM 2023, World Sleep Society 2025
-// ══════════════════════════════════════════════════════════════
-const hasSleepArch = records.some(r => r.deep_sleep_min != null);
-if (hasSleepArch) {
-    // ── 统计汇总 ──
-    const archRecords = records.filter(r => r.deep_sleep_min != null);
-    const avgDeep = avg(archRecords.map(r => r.deep_sleep_min));
-    const avgLight = avg(archRecords.map(r => r.light_sleep_min));
-    const avgREM = avg(archRecords.map(r => r.rem_sleep_min));
-    const avgAwake = avg(archRecords.map(r => r.awake_min || 0));
-    const avgTotalSleep = avgDeep + avgLight + avgREM;
-    const deepPct = avgTotalSleep > 0 ? (avgDeep / avgTotalSleep * 100).toFixed(1) : 0;
-    const remPct = avgTotalSleep > 0 ? (avgREM / avgTotalSleep * 100).toFixed(1) : 0;
-    const avgFrag = avg(archRecords.map(r => r.sleep_fragmentation).filter(v => v != null));
-    const avgCycles = avg(archRecords.map(r => r.sleep_cycles).filter(v => v != null));
-
-    // 评估
-    const deepStatus = deepPct >= 15 ? (deepPct <= 25 ? {t:'正常',c:colors.green} : {t:'偏高',c:colors.cyan}) :
-                       deepPct >= 10 ? {t:'偏低',c:colors.yellow} : {t:'不足',c:colors.orange};
-    const remStatus = remPct >= 20 ? (remPct <= 25 ? {t:'正常',c:colors.green} : {t:'偏高',c:colors.cyan}) :
-                      remPct >= 15 ? {t:'偏低',c:colors.yellow} : {t:'不足',c:colors.orange};
-    const fragStatus = avgFrag != null ? (avgFrag < 5 ? {t:'优秀',c:colors.green} :
-                       avgFrag < 10 ? {t:'正常',c:colors.cyan} : {t:'高碎片化',c:colors.orange}) :
-                       {t:'无数据',c:'#94a3b8'};
-
-    document.getElementById('sleep-arch-summary').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0;">
-        <div style="padding:10px 14px;border-radius:10px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.15);">
-            <div style="font-size:11px;color:var(--text-muted);">深睡占比</div>
-            <div style="font-size:22px;font-weight:700;color:${deepStatus.c};">${deepPct}%</div>
-            <div style="font-size:10px;color:${deepStatus.c};">${deepStatus.t} · 参考15-25%</div>
-        </div>
-        <div style="padding:10px 14px;border-radius:10px;background:rgba(244,114,182,0.08);border:1px solid rgba(244,114,182,0.15);">
-            <div style="font-size:11px;color:var(--text-muted);">REM占比</div>
-            <div style="font-size:22px;font-weight:700;color:${remStatus.c};">${remPct}%</div>
-            <div style="font-size:10px;color:${remStatus.c};">${remStatus.t} · 参考20-25%</div>
-        </div>
-        <div style="padding:10px 14px;border-radius:10px;background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.15);">
-            <div style="font-size:11px;color:var(--text-muted);">碎片化指数</div>
-            <div style="font-size:22px;font-weight:700;color:${fragStatus.c};">${avgFrag != null ? avgFrag.toFixed(1) : '-'}</div>
-            <div style="font-size:10px;color:${fragStatus.c};">${fragStatus.t} · 次/小时</div>
-        </div>
-        <div style="padding:10px 14px;border-radius:10px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.15);">
-            <div style="font-size:11px;color:var(--text-muted);">平均周期数</div>
-            <div style="font-size:22px;font-weight:700;color:var(--text-primary);">${avgCycles != null ? avgCycles.toFixed(1) : '-'}</div>
-            <div style="font-size:10px;color:var(--text-secondary);">正常 4-6 个/晚</div>
-        </div>
-    </div>
-    <div style="font-size:11px;color:var(--text-muted);padding:6px 10px;background:rgba(99,102,241,0.04);border-radius:6px;">
-        📖 依据: AASM 2023 — 成人正常深睡占比15-25%(N3期·恢复体力·清除代谢废物)，REM占比20-25%(记忆巩固·情绪调节·神经可塑性)。碎片化指数>10次/小时提示睡眠连续性受损。
-    </div>`;
-
-    // ── 堆叠条形图 ──
-    const archChart = echarts.init(document.getElementById('chart-sleep-arch'));
-    const archDates = archRecords.map(r => r.date.slice(5));
-    archChart.setOption({
-        backgroundColor: 'transparent',
-        tooltip: {
-            trigger: 'axis',
-            backgroundColor: 'rgba(17,24,39,0.95)',
-            borderColor: 'rgba(99,102,241,0.3)',
-            textStyle: { color: '#f1f5f9', fontSize: 13 },
-            formatter: function(params) {
-                const idx = params[0].dataIndex;
-                const r = archRecords[idx];
-                const total = (r.deep_sleep_min||0) + (r.light_sleep_min||0) + (r.rem_sleep_min||0);
-                let s = `<strong>${r.date}</strong><br/>`;
-                s += `🟣 深睡: ${(r.deep_sleep_min||0).toFixed(0)}分钟 (${total>0 ? ((r.deep_sleep_min||0)/total*100).toFixed(1) : 0}%)<br/>`;
-                s += `🔵 浅睡: ${(r.light_sleep_min||0).toFixed(0)}分钟<br/>`;
-                s += `🟢 REM: ${(r.rem_sleep_min||0).toFixed(0)}分钟 (${total>0 ? ((r.rem_sleep_min||0)/total*100).toFixed(1) : 0}%)<br/>`;
-                s += `⚪ 觉醒: ${(r.awake_min||0).toFixed(0)}分钟`;
-                if (r.sleep_fragmentation != null) s += `<br/>碎片化: ${r.sleep_fragmentation}次/h`;
-                if (r.sleep_cycles != null) s += `<br/>周期数: ${r.sleep_cycles}`;
-                return s;
-            },
-        },
-        legend: {
-            data: ['深睡', '浅睡', 'REM', '觉醒'],
-            textStyle: { color: '#94a3b8' },
-            top: 0,
-        },
-        grid: { left: 50, right: 20, top: 50, bottom: 40 },
-        xAxis: {
-            type: 'category',
-            data: archDates,
-            axisLabel: { color: '#64748b', fontSize: 11 },
-            axisLine: { lineStyle: { color: 'rgba(99,102,241,0.15)' } },
-        },
-        yAxis: {
-            type: 'value',
-            name: '分钟',
-            nameTextStyle: { color: '#64748b' },
-            axisLabel: { color: '#64748b' },
-            splitLine: { lineStyle: { color: 'rgba(99,102,241,0.08)' } },
-        },
-        series: [
-            {
-                name: '深睡', type: 'bar', stack: 'sleep',
-                data: archRecords.map(r => r.deep_sleep_min || 0),
-                barWidth: '50%',
-                itemStyle: { color: '#6366f1', borderRadius: [0, 0, 0, 0] },
-            },
-            {
-                name: '浅睡', type: 'bar', stack: 'sleep',
-                data: archRecords.map(r => r.light_sleep_min || 0),
-                itemStyle: { color: '#818cf8' },
-            },
-            {
-                name: 'REM', type: 'bar', stack: 'sleep',
-                data: archRecords.map(r => r.rem_sleep_min || 0),
-                itemStyle: { color: '#f472b6' },
-            },
-            {
-                name: '觉醒', type: 'bar', stack: 'sleep',
-                data: archRecords.map(r => r.awake_min || 0),
-                itemStyle: { color: 'rgba(148,163,184,0.4)', borderRadius: [4, 4, 0, 0] },
-            },
-        ],
-    });
-} else {
-    document.getElementById('sleep-arch-summary').innerHTML =
-        '<div style="padding:16px;color:var(--text-muted);font-size:13px;">暂无睡眠结构分期数据。需要华为手表开启 TruSleep 功能并通过备份导入。</div>';
-}
-
-// ══════════════════════════════════════════════════════════════
-// 11. ODI + OSAHS SCREENING
-// 理论基础: BTS, GOLD, AASM 指南
-// ══════════════════════════════════════════════════════════════
-const hasODI = records.some(r => r.odi != null);
-if (hasODI) {
-    const odiRecords = records.filter(r => r.odi != null);
-    const avgODI = avg(odiRecords.map(r => r.odi));
-    const maxODI = max(odiRecords.map(r => r.odi));
-    const daysHighODI = odiRecords.filter(r => r.odi >= 5).length;
-
-    let odiLevel, odiColor, odiAdvice;
-    if (avgODI < 5) { odiLevel = '正常'; odiColor = colors.green; odiAdvice = '未见明显阻塞性睡眠呼吸暂停迹象'; }
-    else if (avgODI < 15) { odiLevel = '轻度风险'; odiColor = colors.yellow; odiAdvice = '建议关注体位、控制体重，持续监测'; }
-    else if (avgODI < 30) { odiLevel = '中度风险'; odiColor = colors.orange; odiAdvice = '建议至医院进行多导睡眠监测(PSG)评估'; }
-    else { odiLevel = '重度风险'; odiColor = colors.red; odiAdvice = '强烈建议尽快进行临床睡眠医学评估'; }
-
-    document.getElementById('odi-assessment').innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0;">
-        <div style="padding:14px;border-radius:12px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);">
-            <div style="font-size:11px;color:var(--text-muted);">平均 ODI</div>
-            <div style="font-size:28px;font-weight:700;color:${odiColor};">${avgODI.toFixed(1)}</div>
-            <div style="font-size:12px;color:${odiColor};font-weight:600;">${odiLevel}</div>
-        </div>
-        <div style="padding:14px;border-radius:12px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);">
-            <div style="font-size:11px;color:var(--text-muted);">最高 ODI / 异常天数</div>
-            <div style="font-size:28px;font-weight:700;color:var(--text-primary);">${maxODI.toFixed(1)}</div>
-            <div style="font-size:12px;color:var(--text-secondary);">${daysHighODI}天 ODI≥5</div>
-        </div>
-    </div>
-    <div style="padding:10px 14px;border-radius:8px;background:${odiColor}15;border-left:3px solid ${odiColor};margin-bottom:10px;">
-        <div style="font-size:13px;font-weight:600;color:${odiColor};">💡 ${odiAdvice}</div>
-    </div>
-    <div style="font-size:10px;color:var(--text-muted);padding:6px 10px;background:rgba(99,102,241,0.04);border-radius:6px;">
-        ⚠️ ODI由腕式血氧传感器计算（精度±2-3%），仅作为OSAHS筛查参考，不能替代PSG诊断。<br/>
-        📖 ODI阈值: <5正常 | 5-15轻度 | 15-30中度 | >30重度 (AASM指南)
-    </div>`;
-} else {
-    document.getElementById('odi-assessment').innerHTML =
-        '<div style="padding:16px;color:var(--text-muted);font-size:13px;">暂无ODI数据。需通过华为备份导入连续夜间血氧数据后自动计算。</div>';
-}
-
-// ══════════════════════════════════════════════════════════════
-// 12. CLINICAL CROSS-CORRELATION ALERTS
-// 多维度临床交叉关联预警引擎
-// ══════════════════════════════════════════════════════════════
-const crossAlerts = [];
-
-// [A] 睡眠-心率交互
-const sleepHrPairs = records.filter(r => r.sleep_hours != null && r.resting_heart_rate != null);
-if (sleepHrPairs.length >= 5) {
-    const corr = pearsonCorr(
-        sleepHrPairs.map(r => r.sleep_hours),
-        sleepHrPairs.map(r => r.resting_heart_rate)
-    );
-    if (corr < -0.3) {
-        crossAlerts.push({
-            icon: '💤❤️', level: 'info',
-            title: '睡眠-心率负相关',
-            detail: `睡眠时长与静息心率呈负相关 (r=${corr.toFixed(2)})，睡眠越短→心率越高。提示交感神经系统因睡眠不足而过度激活。`,
-            ref: 'Copenhagen City Heart Study'
-        });
-    }
-}
-
-// [B] 运动-睡眠交互
-if (hasSleepArch) {
-    const exSleepPairs = records.filter(r => r.steps != null && r.deep_sleep_min != null);
-    if (exSleepPairs.length >= 5) {
-        const corrExDeep = pearsonCorr(
-            exSleepPairs.map(r => r.steps),
-            exSleepPairs.map(r => r.deep_sleep_min)
-        );
-        if (corrExDeep > 0.3) {
-            crossAlerts.push({
-                icon: '🏃🧠', level: 'good',
-                title: '运动促进深睡',
-                detail: `步数与深睡时长呈正相关 (r=${corrExDeep.toFixed(2)})，运动越多→深睡越好。继续保持规律运动。`,
-                ref: 'Lancet Public Health 2022'
-            });
-        } else if (corrExDeep < -0.3) {
-            crossAlerts.push({
-                icon: '⚡😫', level: 'warn',
-                title: '过度运动损害深睡',
-                detail: `步数与深睡呈负相关 (r=${corrExDeep.toFixed(2)})，可能存在过度训练。建议适量运动。`,
-                ref: 'ACSM Exercise Guidelines'
-            });
-        }
-    }
-}
-
-// [C] ODI × 深睡 交叉 (OSAHS增强筛查)
-if (hasODI && hasSleepArch) {
-    const crossRecords = records.filter(r => r.odi != null && r.deep_sleep_min != null);
-    const highOdiLowDeep = crossRecords.filter(r => {
-        const total = (r.deep_sleep_min||0) + (r.light_sleep_min||0) + (r.rem_sleep_min||0);
-        return r.odi >= 5 && total > 0 && (r.deep_sleep_min / total) < 0.15;
-    }).length;
-    if (highOdiLowDeep >= 2) {
-        crossAlerts.push({
-            icon: '🫁🧠', level: 'danger',
-            title: 'OSAHS交叉信号增强',
-            detail: `${highOdiLowDeep}天同时出现 ODI≥5 + 深睡占比<15%。反复呼吸暂停严重破坏深睡结构，OSAHS概率显著升高。强烈建议进行PSG评估。`,
-            ref: 'AASM + BTS/GOLD'
-        });
-    }
-}
-
-// [D] 碎片化 × 日间步数
-if (hasSleepArch) {
-    const fragStepPairs = records.filter(r => r.sleep_fragmentation != null && r.steps != null);
-    const highFragLowStep = fragStepPairs.filter(r => r.sleep_fragmentation > 8 && r.steps < 3000).length;
-    if (highFragLowStep >= 2) {
-        crossAlerts.push({
-            icon: '😴🚶', level: 'warn',
-            title: '睡眠碎片化→日间活动减少',
-            detail: `${highFragLowStep}天出现高碎片化(>8次/h) + 低步数(<3000)。睡眠质量差导致日间疲劳→活动减少，形成恶性循环。`,
-            ref: 'World Sleep Society 2025'
-        });
-    }
-}
-
-// [E] 久坐预警
-const sedentaryDays = records.filter(r => r.steps != null && r.steps < 3000).length;
-if (sedentaryDays >= 3) {
-    crossAlerts.push({
-        icon: '🪑⚠️', level: 'warn',
-        title: '久坐行为风险',
-        detail: `${sedentaryDays}天步数<3000步。WHO定义<5000步/日为久坐行为，与心血管疾病、代谢综合征风险独立相关。`,
-        ref: 'WHO 2020 Physical Activity Guidelines'
-    });
-}
-
-// [F] 压力 × 睡眠
-const hasStress = records.some(r => r.stress_avg != null);
-if (hasStress && hasSleepArch) {
-    const stressSleepPairs = records.filter(r => r.stress_avg != null && r.deep_sleep_min != null);
-    if (stressSleepPairs.length >= 3) {
-        const highStressLowDeep = stressSleepPairs.filter(r => {
-            const total = (r.deep_sleep_min||0) + (r.light_sleep_min||0) + (r.rem_sleep_min||0);
-            return r.stress_avg > 60 && total > 0 && (r.deep_sleep_min / total) < 0.15;
-        }).length;
-        if (highStressLowDeep >= 2) {
-            crossAlerts.push({
-                icon: '😰🧠', level: 'warn',
-                title: '高压力损害深睡',
-                detail: `${highStressLowDeep}天同时出现高压力(>60) + 深睡不足(<15%)。慢性压力导致皮质醇升高，严重影响深睡质量。`,
-                ref: 'Psychoneuroendocrinology 2020'
-            });
-        }
-    }
-}
-
-// 渲染交叉预警
-const alertColors = { danger: colors.red, warn: colors.orange, good: colors.green, info: colors.cyan };
-const alertBg = { danger: 'rgba(248,113,113,0.08)', warn: 'rgba(251,146,60,0.08)', good: 'rgba(52,211,153,0.06)', info: 'rgba(34,211,238,0.06)' };
-
-if (crossAlerts.length > 0) {
-    document.getElementById('cross-correlation-alerts').innerHTML = crossAlerts.map(a => `
-        <div style="padding:12px 16px;margin:8px 0;border-radius:10px;background:${alertBg[a.level]};border-left:3px solid ${alertColors[a.level]};">
-            <div style="font-size:14px;font-weight:600;color:${alertColors[a.level]};">${a.icon} ${a.title}</div>
-            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${a.detail}</div>
-            ${a.ref ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">📖 ${a.ref}</div>` : ''}
-        </div>
-    `).join('');
-} else {
-    document.getElementById('cross-correlation-alerts').innerHTML =
-        '<div style="padding:16px;color:var(--text-muted);font-size:13px;">✅ 当前数据未发现需要交叉预警的异常组合。持续监测中。</div>';
-}
-
-
 </script>
 
 
+<script>
+// ── Theme Switcher ──
+document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        const theme = e.target.dataset.theme;
+        document.body.classList.remove('theme-light', 'theme-warm');
+        if (theme === 'light') document.body.classList.add('theme-light');
+        if (theme === 'warm') document.body.classList.add('theme-warm');
+    });
+});
+</script>
 </body>
 </html>
