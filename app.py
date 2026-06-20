@@ -25,7 +25,7 @@ from flask import Flask, request, jsonify, send_from_directory, render_template_
 PROJECT_DIR = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from health_data_schema import HealthDataStore, DailyHealthData, PersonProfile, ExerciseRecord
+from health_data_schema import HealthDataStore, DailyHealthData, PersonProfile, ExerciseRecord, check_physiological_ranges
 from extract_health_data import QwenVLExtractor, check_cross_day_consistency
 
 # 修复 Windows GBK 终端无法输出 emoji 的问题
@@ -674,6 +674,7 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
             <a class="dl-btn" id="dl-docx" href="#" onclick="downloadReport('docx'); return false;">📄 下载 Word 报告</a>
             <button class="dl-btn" onclick="publishToCloud()" id="btn-publish" style="border:1px solid rgba(52,211,153,0.3);color:var(--green);background:rgba(52,211,153,0.1);">📤 发布到云端</button>
             <button class="dl-btn" onclick="toggleLanInfo()" style="border:1px solid rgba(34,211,238,0.3);color:var(--cyan);background:rgba(34,211,238,0.1);">🔗 局域网访问</button>
+            <button class="dl-btn" onclick="showQualityReport()" style="border:1px solid rgba(251,191,36,0.3);color:#fbbf24;background:rgba(251,191,36,0.1);">🩺 数据体检</button>
         </div>
 
         <div class="publish-url-box" id="publish-url-box">
@@ -706,6 +707,8 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
                 <button class="copy-btn" onclick="copyUrl('lan-url')" style="background:var(--cyan);">📋 复制</button>
             </div>
         </div>
+
+        <div id="quality-report-box" style="display:none;margin-top:12px;padding:16px;border-radius:10px;background:rgba(251,191,36,0.05);border:1px solid rgba(251,191,36,0.2);font-size:13px;line-height:1.7;"></div>
 
         <div class="card" style="padding:8px;margin-top:12px;">
             <iframe class="dashboard-frame" id="dashboard-iframe" src=""></iframe>
@@ -1194,6 +1197,42 @@ function loadDashboard() {
 }
 
 // ══════════ CLOUD PUBLISH ══════════
+async function showQualityReport() {
+    const box = document.getElementById('quality-report-box');
+    if (!currentPerson) { showToast('请先选择人员', 'error'); return; }
+    box.style.display = 'block';
+    box.innerHTML = '正在体检…';
+    try {
+        const resp = await fetch('/api/quality-report?person=' + encodeURIComponent(currentPerson));
+        const d = await resp.json();
+        if (d.error) { box.innerHTML = '❌ ' + d.error; return; }
+        let html = `<div style="font-weight:600;color:#fbbf24;font-size:14px;margin-bottom:8px;">🩺 ${d.person} 数据体检</div>`;
+        html += `<div>📅 共 <b>${d.total_days}</b> 天记录，范围 ${d.date_range}</div>`;
+        if (d.missing_dates && d.missing_dates.length) {
+            html += `<div style="color:#fb923c;">⚠️ 中间缺 ${d.missing_dates.length} 天: ${d.missing_dates.join('、')}（请确认是漏录，还是当天本就无数据）</div>`;
+        } else {
+            html += `<div style="color:#34d399;">✅ 日期连续，无缺漏天</div>`;
+        }
+        html += `<div style="margin-top:8px;font-weight:600;">各指标数据覆盖：</div>`;
+        (d.field_coverage || []).forEach(c => {
+            const full = c.have === c.total, none = c.have === 0;
+            const color = full ? '#34d399' : none ? '#94a3b8' : '#fb923c';
+            const note = none ? '（全无 — 可能此设备不支持该项，属正常）' : full ? '' : `（${c.total - c.have} 天无）`;
+            html += `<div style="color:${color};">• ${c.label}: ${c.have}/${c.total} 天 ${note}</div>`;
+        });
+        html += `<div style="margin-top:8px;font-weight:600;">数值合理性：</div>`;
+        if (d.anomalies && d.anomalies.length) {
+            d.anomalies.forEach(a => { html += `<div style="color:#f87171;">🔴 ${a.date}: ${a.issue}</div>`; });
+        } else {
+            html += `<div style="color:#34d399;">✅ 未发现医学上不可能的数值</div>`;
+        }
+        html += `<div style="margin-top:10px;font-size:11px;color:#94a3b8;">说明：某项"全无"通常是设备不支持该功能（如部分手环无血氧），属真实情况、非错误。请对照原始截图核实缺失天与可疑值。</div>`;
+        box.innerHTML = html;
+    } catch (e) {
+        box.innerHTML = '❌ 体检失败: ' + e.message;
+    }
+}
+
 async function publishToCloud() {
     if (!currentPerson) { showToast('请先选择人员', 'error'); return; }
 
@@ -1658,6 +1697,11 @@ def api_confirm():
         record = DailyHealthData.model_validate(data["data"])
         filename = data.get("filename", "")
 
+        # 功能③：入库前硬拦截医学/物理上不可能的值（空缺合法，不拦）
+        range_errors = check_physiological_ranges(record)
+        if range_errors:
+            return jsonify({"error": "检测到明显异常数据，已拦截入库，请核对截图：" + "；".join(range_errors)}), 400
+
         store = load_store(person_id)
         is_new = store.add_record(record, filename)
         save_store(store, person_id)
@@ -1670,6 +1714,64 @@ def api_confirm():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/quality-report")
+def api_quality_report():
+    """数据体检：如实呈现日期连续性、各指标覆盖、医学可疑值。
+    原则：空缺只如实呈现(可能是设备无该功能)，不判为错误。"""
+    person_id = request.args.get("person", "").strip()
+    if not person_id:
+        return jsonify({"error": "缺少 person 参数"}), 400
+    try:
+        store = load_store(person_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    recs = sorted(store.records, key=lambda r: r.date)
+    if not recs:
+        return jsonify({
+            "person": store.person_name or person_id, "total_days": 0,
+            "date_range": "—", "expected_days": 0, "missing_dates": [],
+            "field_coverage": [], "anomalies": [],
+        })
+
+    import datetime as _dt
+    dates = [r.date for r in recs]
+    try:
+        d0 = _dt.date.fromisoformat(dates[0]); d1 = _dt.date.fromisoformat(dates[-1])
+        alld = set(); cur = d0
+        while cur <= d1:
+            alld.add(cur.isoformat()); cur += _dt.timedelta(days=1)
+        missing = sorted(alld - set(dates))
+        expected = len(alld)
+    except ValueError:
+        missing = []; expected = len(recs)
+
+    fields = [("steps", "步数"), ("distance_km", "距离"), ("heart_rate_min", "心率最低"),
+              ("heart_rate_max", "心率最高"), ("resting_heart_rate", "静息心率"),
+              ("spo2_min", "血氧最低"), ("spo2_max", "血氧最高"),
+              ("sleep_hours", "睡眠时长"), ("sleep_score", "睡眠分数")]
+    coverage = []
+    for f, label in fields:
+        have = sum(1 for r in recs if getattr(r, f, None) is not None)
+        coverage.append({"field": f, "label": label, "have": have, "total": len(recs)})
+
+    # 医学/物理不可能的值（硬界），如实列出由用户核对
+    anomalies = []
+    for r in recs:
+        for e in check_physiological_ranges(r):
+            anomalies.append({"date": r.date, "issue": e})
+
+    return jsonify({
+        "person": store.person_name or person_id,
+        "total_days": len(recs),
+        "date_range": f"{dates[0]} ~ {dates[-1]}",
+        "expected_days": expected,
+        "missing_dates": missing,
+        "field_coverage": coverage,
+        "anomalies": anomalies,
+    })
 
 
 @app.route("/api/profile", methods=["GET"])
@@ -2160,8 +2262,9 @@ def api_import_huawei_zip():
             for i in range(1, len(_spo2_samples)):
                 if _spo2_samples[i-1] - _spo2_samples[i] >= 3:
                     desat_events += 1
-            sleep_hrs = fields.get('sleep_hours') or 7.0  # 默认7小时
-            if sleep_hrs > 0:
+            # 尊重真实数据：没有真实睡眠时长就不计算 ODI（不编造默认值）
+            sleep_hrs = fields.get('sleep_hours')
+            if sleep_hrs and sleep_hrs > 0:
                 fields['odi'] = round(desat_events / sleep_hrs, 1)
 
         try:

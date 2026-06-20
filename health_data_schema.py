@@ -400,3 +400,48 @@ class HealthDataStore(BaseModel):
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
         return cls.model_validate(data)
+
+
+# ── 入库前硬拦截：医学/物理上不可能的值 ──
+# 设计原则（见数据处理铁律）：
+#   1. 只挡"不可能"的值，边界取医学极限，足够宽松，不误伤真实极端值；
+#   2. 空值(None)一律放行——缺失是合法的（如设备无该功能），绝不因空值拦截；
+#   3. 仅用于入库时调用，不放进模型校验器，避免加载历史数据时崩溃。
+_PHYSIO_RANGES = {
+    'steps': (0, 200000),
+    'distance_km': (0, 500),
+    'exercise_minutes': (0, 1440),
+    'heart_rate_min': (20, 300),
+    'heart_rate_max': (20, 300),
+    'resting_heart_rate': (20, 300),
+    'avg_heart_rate': (20, 300),
+    'spo2_min': (50, 100),
+    'spo2_max': (50, 100),
+    'spo2_avg': (50, 100),
+    'sleep_hours': (0, 24),
+    'sleep_score': (0, 100),
+    'deep_sleep_min': (0, 1440),
+    'light_sleep_min': (0, 1440),
+    'rem_sleep_min': (0, 1440),
+    'awake_min': (0, 1440),
+    'stress_avg': (0, 100),
+    'stress_max': (0, 100),
+}
+
+
+def check_physiological_ranges(record: 'DailyHealthData') -> List[str]:
+    """返回医学/物理上不可能的值的错误描述列表（空列表=通过）。用于入库前硬拦截。
+    空值(None)一律放行——缺失是合法真实情况，不视为错误。"""
+    errors = []
+    d = record.model_dump()
+    for field, (lo, hi) in _PHYSIO_RANGES.items():
+        v = d.get(field)
+        if v is not None and (v < lo or v > hi):
+            errors.append(f"{field}={v} 超出医学合理范围 [{lo}, {hi}]")
+    hmin, hmax = d.get('heart_rate_min'), d.get('heart_rate_max')
+    if hmin is not None and hmax is not None and hmin > hmax:
+        errors.append(f"心率最低值({hmin})不应大于最高值({hmax})")
+    smin, smax = d.get('spo2_min'), d.get('spo2_max')
+    if smin is not None and smax is not None and smin > smax:
+        errors.append(f"血氧最低值({smin})不应大于最高值({smax})")
+    return errors

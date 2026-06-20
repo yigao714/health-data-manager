@@ -429,6 +429,7 @@ def check_cross_day_consistency(
     checks = [
         ("steps", "步数", 3.0),
         ("resting_heart_rate", "静息心率", 3.0),
+        ("heart_rate_max", "心率最高", 3.0),
         ("spo2_min", "血氧下限", 3.0),
         ("sleep_hours", "睡眠时长", 2.5),
     ]
@@ -439,7 +440,19 @@ def check_cross_day_consistency(
             continue
 
         mean, std = hist_stats(field)
-        if mean is None or std is None or std == 0:
+        if mean is None:
+            continue
+
+        # 专项：疑似看错位数/小数点（OCR 最常见且最危险的错误，如步数 1710 误成 17100）
+        if mean > 0 and new_val > 0:
+            ratio = new_val / mean
+            if ratio >= 8 or ratio <= 0.125:
+                warnings.append(
+                    f"🔴 {display_name}疑似看错位数: {new_val} 约为历史均值({mean:.1f})的 {ratio:.1f} 倍，请重点核对原始截图"
+                )
+                continue
+
+        if std is None or std == 0:
             continue
 
         deviation = abs(new_val - mean) / std
