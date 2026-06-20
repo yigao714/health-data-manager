@@ -516,6 +516,8 @@
         @media (max-width: 480px) {
             .summary-grid { grid-template-columns: 1fr; }
             .health-scores { grid-template-columns: 1fr; }
+            /* B5: 手机端日历更紧凑，避免空白过多 */
+            #chart-calendar { height: 160px !important; }
         }
 
         /* ── Print styles ── */
@@ -1559,9 +1561,9 @@ function renderViews(filtered, label) {
         <th>睡眠</th><th>入睡</th><th>醒来</th><th>睡眠分</th>
     </tr></thead><tbody>`;
     filtered.forEach(r => {
-        const stepsClass = r.steps < 2000 ? 'highlight-low' : r.steps >= 5000 ? 'highlight-good' : '';
-        const sleepClass = r.sleep_hours < 6 ? 'highlight-low' : r.sleep_hours >= 7 ? 'highlight-good' : '';
-        const scoreClass = r.sleep_score < 60 ? 'highlight-low' : r.sleep_score >= 80 ? 'highlight-good' : '';
+        const stepsClass = r.steps == null ? '' : r.steps < 2000 ? 'highlight-low' : r.steps >= 5000 ? 'highlight-good' : '';
+        const sleepClass = r.sleep_hours == null ? '' : r.sleep_hours < 6 ? 'highlight-low' : r.sleep_hours >= 7 ? 'highlight-good' : '';
+        const scoreClass = r.sleep_score == null ? '' : r.sleep_score < 60 ? 'highlight-low' : r.sleep_score >= 80 ? 'highlight-good' : '';
         tableHTML += `<tr>
             <td style="font-weight:600;color:${colors.blue}">${r.date}</td>
             <td class="${stepsClass}">${r.steps?.toLocaleString() ?? '-'}</td>
@@ -1791,32 +1793,7 @@ setTimeout(() => {
     });
 }, 50);
 
-// ══════════════════════════════════════════════════════════════
-// 0. PROFILE CARD (显示个人档案，如有)
-// ══════════════════════════════════════════════════════════════
-// profile 已在前面定义
-const hasProfile = profile.age || profile.sex || profile.height_cm;
-
-if (hasProfile) {
-    const bmi = (profile.height_cm && profile.weight_kg)
-        ? (profile.weight_kg / Math.pow(profile.height_cm / 100, 2)).toFixed(1) : null;
-    const bmiText = bmi ? (bmi < 18.5 ? '偏瘦' : bmi < 24 ? '正常' : bmi < 28 ? '超重' : '肥胖') : '';
-    const sexText = profile.sex === 'male' ? '男' : profile.sex === 'female' ? '女' : '';
-
-    document.getElementById('profile-card-container').innerHTML = `
-        <div class="chart-card fade-in" style="margin-bottom:24px;">
-            <div class="chart-title">👤 个人健康档案</div>
-            <div style="display:flex;flex-wrap:wrap;gap:24px;margin-top:12px;">
-                ${profile.age ? `<div class="card-sub" style="color:var(--text-primary)">年龄: <strong>${profile.age}岁</strong> · 预估最大心率: <strong>${220-profile.age}bpm</strong></div>` : ''}
-                ${sexText ? `<div class="card-sub" style="color:var(--text-primary)">性别: <strong>${sexText}</strong></div>` : ''}
-                ${bmi ? `<div class="card-sub" style="color:var(--text-primary)">BMI: <strong>${bmi}</strong> (${bmiText})</div>` : ''}
-                ${profile.conditions && profile.conditions.length ? `<div class="card-sub" style="color:var(--accent-orange)">基础疾病: <strong>${profile.conditions.join('、')}</strong></div>` : ''}
-                ${profile.medications && profile.medications.length ? `<div class="card-sub" style="color:var(--accent-cyan)">用药: <strong>${profile.medications.join('、')}</strong></div>` : ''}
-            </div>
-        </div>`;
-}
-
-// ══════════════════════════════════════════════════════════════
+// 个人健康档案卡片已由 renderViews() 统一渲染(F13: 删除此处冗余路径，消除最大心率公式不一致导致的数值跳变)
 </script>
 
 

@@ -142,13 +142,9 @@ def regenerate_dashboard(store: HealthDataStore, person_id: str):
     try:
         tmpl = DASHBOARD_TEMPLATE
         if not tmpl.exists():
-            # 兼容：如果模板不存在，尝试用旧 dashboard.html
-            old = PROJECT_DIR / "dashboard.html"
-            if old.exists():
-                tmpl = old
-            else:
-                print(f"仪表盘模板不存在: {tmpl}")
-                return False
+            # B1: 不再回退到根目录旧 dashboard.html(已废弃)，模板缺失直接失败
+            print(f"仪表盘模板不存在: {tmpl}")
+            return False
 
         with open(tmpl, "r", encoding="utf-8") as f:
             html = f.read()
@@ -1463,15 +1459,20 @@ def index():
 def serve_dashboard():
     """提供指定人员的仪表盘"""
     person_id = request.args.get("person", "").strip()
+    resp = None
     if person_id:
         try:
             dp = get_person_dashboard(person_id)
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         if dp.exists():
-            return send_from_directory(str(dp.parent), dp.name)
-    # 兼容：返回模板
-    return send_from_directory(str(PROJECT_DIR), "dashboard_template.html")
+            resp = send_from_directory(str(dp.parent), dp.name)
+    if resp is None:
+        # 兼容：返回模板
+        resp = send_from_directory(str(PROJECT_DIR), "dashboard_template.html")
+    # B4: 禁用浏览器缓存，确保修复后刷新即看到最新报告
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resp
 
 
 @app.route("/echarts.min.js")
