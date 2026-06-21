@@ -1508,6 +1508,12 @@ function renderViews(filtered, label) {
     }, true);
 
     // 9. Risk Assessment list
+    // 风险分类（按每天最严重等级归类，三者互斥）— 之前此处定义丢失导致 fDanger is not defined
+    const fFlags = filtered.map(r => ({ date: r.date, flags: assessDay(r) }));
+    const fDanger = fFlags.filter(d => d.flags.some(f => f.level === 'danger'));
+    const fWarn = fFlags.filter(d => d.flags.some(f => f.level === 'warn') && !d.flags.some(f => f.level === 'danger'));
+    const fGood = fFlags.filter(d => d.flags.every(f => f.level === 'good'));
+    const fSpo2Dates = filtered.filter(r => r.spo2_min != null && r.spo2_min < effWarningDisplay).map(r => r.date.slice(5));
     let riskHTML = `<div style="padding:12px 16px;border-radius:10px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.15);margin-bottom:12px;font-size:13px;">
         <div style="font-weight:600;margin-bottom:6px;">📋 ${filtered.length}天总览${label}</div>
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--text-secondary);">
