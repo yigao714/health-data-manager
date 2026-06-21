@@ -375,8 +375,9 @@ class HealthDataStore(BaseModel):
     def add_record(self, record: DailyHealthData, filename: str = "") -> bool:
         """
         添加或更新一条记录。
-        如果相同日期已存在，则替换；否则追加。
-        返回是否为新增记录。
+        如果相同日期已存在，则进行**字段级合并**：新值非 None 才覆盖，None 不覆盖已有值——
+        既不丢失已录入数据（同一天分多张截图可累积补全），又允许重传截图修正错误值。
+        否则追加。返回是否为新增记录。
         """
         # 记录数据来源截图（便于回溯核对）；仅截图入口传入 filename
         if filename:
@@ -384,11 +385,16 @@ class HealthDataStore(BaseModel):
         # 查找是否已有同日数据
         for i, existing in enumerate(self.records):
             if existing.date == record.date:
-                self.records[i] = record
+                # 字段级合并：新值非 None 才覆盖，None 保留已有（不漏不添）
+                merged = existing.model_dump()
+                for k, v in record.model_dump().items():
+                    if k != 'date' and v is not None:
+                        merged[k] = v
+                self.records[i] = DailyHealthData.model_validate(merged)
                 if filename and filename not in self.processed_files:
                     self.processed_files.append(filename)
                 self.last_updated = datetime.now().isoformat()
-                return False  # 更新已有
+                return False  # 更新已有（字段级合并）
 
         self.records.append(record)
         if filename and filename not in self.processed_files:
