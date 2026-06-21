@@ -678,6 +678,7 @@ const HEALTH_DATA = /*__DATA_PLACEHOLDER__*/{"person_name": "WEI", "profile": {"
 
 const records = HEALTH_DATA.records;
 const dates = records.map(r => r.date.slice(5)); // "05-29"
+let __curFiltered = records; // 当前时间窗口的数据（供达标图 tooltip 使用，避免切换窗口后错位）
 const profile = HEALTH_DATA.profile || {};
 
 // ── 动态根据数据天数限制时间选择按钮 ──
@@ -986,9 +987,11 @@ compChart.setOption({
     tooltip: {
         trigger: 'axis', backgroundColor: 'rgba(17,24,39,0.95)', borderColor: 'rgba(99,102,241,0.3)', textStyle: { color: '#f1f5f9', fontSize: 13 },
         formatter: function(params) {
-            const r = records[params[0].dataIndex];
-            const zone = r.steps < 3000 ? '久坐' : r.steps < 5000 ? '低活动' : r.steps < 7000 ? '一般活动' : '活跃';
-            return `<strong>${params[0].axisValue}</strong><br/>步数: ${r.steps.toLocaleString()} (${zone})<br/>距离: ${r.distance_km} km<br/>锻炼: ${r.exercise_minutes} 分钟`;
+            const r = __curFiltered[params[0].dataIndex];
+            if (!r) return '';
+            const s = r.steps;
+            const zone = s == null ? '无数据' : s < 3000 ? '久坐' : s < 5000 ? '低活动' : s < 7000 ? '一般活动' : '活跃';
+            return `<strong>${params[0].axisValue}</strong><br/>步数: ${s != null ? s.toLocaleString() : '-'} (${zone})<br/>距离: ${r.distance_km ?? '-'} km<br/>锻炼: ${r.exercise_minutes ?? 0} 分钟`;
         },
     },
     legend: { data: ['步数', '推荐目标', '低活动线'], textStyle: { color: '#94a3b8' }, top: 0 },
@@ -1040,7 +1043,7 @@ calendarChart.setOption({
     },
     visualMap: { show: false, min: 0, max: 2, inRange: { color: ['rgba(52,211,153,0.6)', 'rgba(251,191,36,0.65)', 'rgba(248,113,113,0.7)'] } },
     calendar: {
-        range: [records[0].date, records[records.length - 1].date],
+        range: records.length ? [records[0].date, records[records.length - 1].date] : new Date().toISOString().slice(0, 10),
         cellSize: ['auto', 22], top: 30, left: 50, right: 20, orient: 'horizontal',
         splitLine: { lineStyle: { color: 'rgba(99,102,241,0.12)' } },
         itemStyle: { borderWidth: 2, borderColor: 'rgba(10,14,26,0.8)', borderRadius: 4 },
@@ -1058,6 +1061,7 @@ calendarChart.setOption({
 function renderViews(filtered, label) {
     if (!filtered || filtered.length === 0) return;
     const fDates = filtered.map(r => r.date.slice(5));
+    __curFiltered = filtered; // 同步当前时间窗口数据，修复达标图 tooltip 错位
 
     // 1. Header Date Range
     document.getElementById('gen-time').textContent = new Date().toLocaleString('zh-CN');
