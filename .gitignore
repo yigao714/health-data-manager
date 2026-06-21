@@ -30,3 +30,16 @@ Thumbs.db
 .idea/
 .claude/
 .gemini/
+
+# 🧪 开发/调试临时文件（可能含真实健康数据/姓名，禁止上传）
+temp_*.js
+*.jsonl
+clean.json
+dashboard.diff
+history_output.txt
+logs.txt
+replaced_args.txt
+run_playwright_test.*
+fix_template.py
+regenerate_clean_template.py
+extract_history.py

@@ -28,7 +28,7 @@ PROJECT_DIR = Path(__file__).parent
 DATA_DIR = PROJECT_DIR / "data"
 JSON_PATH = PROJECT_DIR / "health_data.json"
 DASHBOARD_PATH = PROJECT_DIR / "dashboard.html"
-TEMPLATE_PATH = PROJECT_DIR / "dashboard.html"
+TEMPLATE_PATH = PROJECT_DIR / "dashboard_template.html"
 
 
 def cmd_extract(args):
