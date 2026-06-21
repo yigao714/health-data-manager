@@ -249,6 +249,12 @@ class DailyHealthData(BaseModel):
         description="平均呼吸频率（次/分钟），正常12-20"
     )
 
+    # ── 数据来源（便于回溯核对）──
+    source_image: Optional[str] = Field(
+        default=None,
+        description="该条数据来源的截图文件名（保存在 people/<人>/data/ 下），用于回溯核对"
+    )
+
     @field_validator(
         'steps', 'distance_km', 'exercise_minutes', 'exercise_type', 'calories',
         'heart_rate_min', 'heart_rate_max', 'resting_heart_rate', 'avg_heart_rate',
@@ -372,6 +378,9 @@ class HealthDataStore(BaseModel):
         如果相同日期已存在，则替换；否则追加。
         返回是否为新增记录。
         """
+        # 记录数据来源截图（便于回溯核对）；仅截图入口传入 filename
+        if filename:
+            record.source_image = filename
         # 查找是否已有同日数据
         for i, existing in enumerate(self.records):
             if existing.date == record.date:

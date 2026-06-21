@@ -1564,7 +1564,7 @@ function renderViews(filtered, label) {
     <thead><tr>
         <th>日期</th><th>步数</th><th>距离</th><th>锻炼</th>
         <th>心率范围</th><th>静息心率</th><th>血氧范围</th>
-        <th>睡眠</th><th>入睡</th><th>醒来</th><th>睡眠分</th>
+        <th>睡眠</th><th>入睡</th><th>醒来</th><th>睡眠分</th><th>原图</th>
     </tr></thead><tbody>`;
     filtered.forEach(r => {
         const stepsClass = r.steps == null ? '' : r.steps < 2000 ? 'highlight-low' : r.steps >= 5000 ? 'highlight-good' : '';
@@ -1582,6 +1582,7 @@ function renderViews(filtered, label) {
             <td>${r.sleep_start ?? '-'}</td>
             <td>${r.sleep_end ?? '-'}</td>
             <td class="${scoreClass}">${r.sleep_score ?? '-'}</td>
+            <td>${r.source_image ? `<a href="/api/screenshot?person=${encodeURIComponent(HEALTH_DATA.person_name||'')}&file=${encodeURIComponent(r.source_image)}" target="_blank" title="查看原始截图核对" style="text-decoration:none;font-size:15px;">📷</a>` : '<span style="color:var(--text-muted);">—</span>'}</td>
         </tr>`;
     });
     tableHTML += '</tbody></table>';

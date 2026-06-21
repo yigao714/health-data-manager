@@ -1519,6 +1519,23 @@ def serve_echarts():
     return send_from_directory(str(PROJECT_DIR), "echarts.min.js")
 
 
+@app.route("/api/screenshot")
+def api_screenshot():
+    """提供某人某条数据来源的原始截图（用于回溯核对）。仅本地可用。"""
+    person_id = request.args.get("person", "").strip()
+    fname = request.args.get("file", "").strip()
+    if not person_id or not fname:
+        return jsonify({"error": "缺少 person 或 file 参数"}), 400
+    try:
+        safe = _safe_filename(fname)
+        data_dir = get_person_data_dir(person_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if (data_dir / safe).exists():
+        return send_from_directory(str(data_dir), safe)
+    return jsonify({"error": "截图不存在"}), 404
+
+
 # ── 人员管理 API ──
 
 @app.route("/api/people", methods=["GET"])
