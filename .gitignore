@@ -5,6 +5,12 @@ publish_config.json
 people/
 data/
 
+# 📦 健康数据备份/导入导出文件（含真实健康数据与姓名，禁止上传）
+*.zip
+*.csv
+HUAWEI_HEALTH_*
+health_backup_*
+
 # 💾 历史/备份数据文件
 health_data.json
 *.json.bak

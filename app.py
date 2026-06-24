@@ -566,7 +566,7 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
         <div class="card huawei-import-card" style="margin-top: 24px;">
             <div class="card-title">📦 华为运动健康备份导入</div>
             <p style="color:var(--text2); font-size:13px; line-height:1.7; margin-bottom:16px;">
-                上传从华为「个人数据与隐私」导出的加密 <code>.zip</code> 备份文件，系统将自动解密、提取并合并步数、心率、血氧、睡眠等健康指标数据。
+                上传从华为「个人数据与隐私」导出的 <code>.zip</code> 备份文件（加密或未加密均可），系统将自动解压、提取并合并步数、心率、血氧、睡眠等健康指标数据。加密包请填写华为邮件中的密码，未加密则留空。
             </p>
             <div class="import-row">
                 <div class="form-group">
@@ -574,8 +574,8 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
                     <input class="form-input" type="file" id="huawei-zip-input" accept=".zip">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">解压密码</label>
-                    <input class="form-input" type="password" id="huawei-zip-pwd" placeholder="华为邮件中的解压密码">
+                    <label class="form-label">解压密码（可选）</label>
+                    <input class="form-input" type="password" id="huawei-zip-pwd" placeholder="无密码可留空，加密包填华为邮件中的密码">
                 </div>
                 <button class="btn btn-primary" id="btn-import-hw" onclick="importHuaweiZip()" style="height:42px;">
                     🚀 开始导入
@@ -662,8 +662,11 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
     <!-- ═══ TAB 3: DATA ═══ -->
     <div id="tab-data" class="tab-content">
         <div class="card">
-            <div class="card-title">📋 数据管理</div>
-            <div style="overflow-x:auto;" id="data-table-container"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div class="card-title" style="margin:0;">📋 数据管理</div>
+                <button class="btn-new-person" onclick="exportCsv()" id="btn-export-csv">📑 导出 CSV</button>
+            </div>
+            <div style="overflow-x:auto;margin-top:12px;" id="data-table-container"></div>
         </div>
     </div>
 
@@ -1340,6 +1343,13 @@ async function doBackup() {
     window.open('/api/backup', '_blank');
 }
 
+// 导出当前人员识别到的健康数据为 CSV
+async function exportCsv() {
+    if (!currentPerson) { showToast('请先选择一个人员', 'error'); return; }
+    showToast('正在导出 CSV...', 'info');
+    window.open('/api/export-csv?person=' + encodeURIComponent(currentPerson), '_blank');
+}
+
 async function doRestore(input) {
     const file = input.files[0];
     if (!file) return;
@@ -1370,7 +1380,7 @@ async function importHuaweiZip() {
     const pwdInput  = document.getElementById('huawei-zip-pwd');
     const file = fileInput.files[0];
     if (!file) { showToast('请先选择 ZIP 备份文件', 'error'); return; }
-    if (!pwdInput.value) { showToast('请输入解压密码', 'error'); return; }
+    // 密码可选：华为新导出的备份可能未加密，无密码也允许上传
     if (!currentPerson) { showToast('请先选择一个人员', 'error'); return; }
 
     const btn = document.getElementById('btn-import-hw');
@@ -2082,6 +2092,86 @@ def api_backup():
     )
 
 
+# 导出 CSV 的列定义：(字段名, 中文表头) —— 顺序与 DailyHealthData schema 对齐
+_CSV_COLUMNS = [
+    ("date", "日期"),
+    ("steps", "步数"),
+    ("distance_km", "距离(km)"),
+    ("exercise_minutes", "锻炼时长(分钟)"),
+    ("exercise_type", "运动类型"),
+    ("calories", "消耗热量(千卡)"),
+    ("heart_rate_min", "心率最低"),
+    ("heart_rate_max", "心率最高"),
+    ("resting_heart_rate", "静息心率"),
+    ("avg_heart_rate", "平均心率"),
+    ("hr_recovery_1min", "心率恢复(1分钟)"),
+    ("spo2_min", "血氧最低(%)"),
+    ("spo2_max", "血氧最高(%)"),
+    ("spo2_avg", "平均血氧(%)"),
+    ("odi", "氧减指数ODI"),
+    ("sleep_hours", "睡眠时长(小时)"),
+    ("sleep_start", "入睡时间"),
+    ("sleep_end", "醒来时间"),
+    ("sleep_score", "睡眠分数"),
+    ("deep_sleep_min", "深睡(分钟)"),
+    ("light_sleep_min", "浅睡(分钟)"),
+    ("rem_sleep_min", "REM睡眠(分钟)"),
+    ("awake_min", "觉醒(分钟)"),
+    ("sleep_cycles", "睡眠周期数"),
+    ("sleep_fragmentation", "睡眠碎片化指数"),
+    ("stress_avg", "平均压力"),
+    ("stress_max", "最高压力"),
+    ("breath_rate_avg", "平均呼吸频率"),
+    ("source_image", "来源截图"),
+]
+
+
+@app.route("/api/export-csv")
+def api_export_csv():
+    """将指定人员识别到的健康数据导出为 CSV 文件供保存。
+
+    导出 DailyHealthData 全部字段（不漏不添），空缺字段留空；
+    UTF-8 BOM 编码，Excel 直接双击可正确显示中文。
+    """
+    from flask import Response
+    from urllib.parse import quote
+    import csv
+
+    person_id = request.args.get("person", "").strip()
+    if not person_id:
+        return jsonify({"error": "缺少 person 参数"}), 400
+    try:
+        store = load_store(person_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    # 防漏：schema 中存在但未列入上表的字段，自动追加（绝不静默丢弃）
+    columns = list(_CSV_COLUMNS)
+    mapped = {f for f, _ in columns}
+    for fname in DailyHealthData.model_fields:
+        if fname not in mapped:
+            columns.append((fname, fname))
+
+    sbuf = io.StringIO()
+    writer = csv.writer(sbuf)
+    writer.writerow([h for _, h in columns])
+    for r in store.records:  # records 已按日期排序
+        d = r.model_dump()
+        writer.writerow(["" if d.get(f) is None else d.get(f) for f, _ in columns])
+
+    # UTF-8 BOM 前缀(﻿)，兼容 Excel 中文
+    csv_text = "﻿" + sbuf.getvalue()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname_out = f"{person_id}_健康数据_{ts}.csv"
+    return Response(
+        csv_text.encode("utf-8"),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname_out)}"
+        }
+    )
+
+
 @app.route("/api/restore", methods=["POST"])
 def api_restore():
     """从上传的 zip 恢复数据（合并覆盖）"""
@@ -2189,9 +2279,8 @@ def api_import_huawei_zip():
     if "file" not in request.files:
         return jsonify({"error": "未收到文件"}), 400
 
+    # 密码可选：未加密的华为备份无需密码
     password = request.form.get("password", "").strip()
-    if not password:
-        return jsonify({"error": "请提供解压密码"}), 400
 
     file = request.files["file"]
     if not file.filename or not file.filename.lower().endswith(".zip"):
@@ -2211,7 +2300,9 @@ def api_import_huawei_zip():
 
     try:
         with pyzipper.AESZipFile(zip_bytes, 'r') as zf:
-            zf.setpassword(password.encode('utf-8'))
+            # 仅在提供密码时设置，未加密备份留空即可直接读取
+            if password:
+                zf.setpassword(password.encode('utf-8'))
             namelist = zf.namelist()
 
             # 筛选可能包含健康数据的 JSON 文件
@@ -2255,6 +2346,9 @@ def api_import_huawei_zip():
         return jsonify({"error": f"解压失败: {e}"}), 500
 
     if not all_daily_records:
+        # 一条都没提取到 + 未填密码 + 文件全被跳过 → 很可能是加密包却留空了密码
+        if not password and skipped_files and not parsed_files:
+            return jsonify({"error": "未能读取数据，该备份可能是加密包。请在「解压密码」中填写华为邮件里的密码后重试。"}), 400
         return jsonify({"error": "成功解压但未能从中提取到有效的健康数据。可能此备份不包含运动健康数据。"}), 400
 
     # ── 合并入 HealthDataStore ──

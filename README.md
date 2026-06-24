@@ -1,7 +1,7 @@
 # 🏥 AI 智能健康数据管理中心 (Health Data Manager)
 
 [![GitHub stars](https://img.shields.io/github/stars/yigao714/health-data-manager.svg?style=social)](https://github.com/yigao714/health-data-manager)
-[![Version](https://img.shields.io/badge/version-v2.2.0-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v2.3.0-brightgreen.svg)](CHANGELOG.md)
 [![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -37,9 +37,10 @@
   * **药物 (β阻滞剂)**：自动调整静息心率评估区间。
 * **循证风险评估**：综合健康评分、每日风险标记、多维交叉预警（睡眠-心率、运动-深睡、久坐风险等）、OSAHS 氧减指数 (ODI) 筛查与作息规律性 (SRI) 分析。
 
-### 4. 📦 双数据入口
+### 4. 📦 双数据入口与数据导出
 * **截图 OCR**（主入口）：适合日常逐日记录。
-* **华为运动健康压缩包导入**：上传从华为「个人数据与隐私」导出的加密 `.zip` 备份，系统在内存中流式解密（数据不落地），批量提取并**字段级合并**步数、心率、血氧、睡眠等历史数据。
+* **华为运动健康压缩包导入**：上传从华为「个人数据与隐私」导出的 `.zip` 备份（**加密或未加密均可**——加密包填邮件密码，未加密则留空），系统在内存中流式解密（数据不落地），批量提取并**字段级合并**步数、心率、血氧、睡眠等历史数据。
+* **📑 一键导出 CSV**：数据管理页可将某成员识别到的全部健康数据导出为 CSV 文件保存。导出**全部指标字段**（含睡眠分期、压力、呼吸、来源截图），空缺字段如实留空（不漏不添），UTF-8 BOM 编码，Excel 双击直接正确显示中文。
 
 ### 5. 📤 一键发布云端 & 手机微信完美适配
 * 解决手机微信直接发送 `.html` 文件在苹果手机上显示源码、在华为手机上图表空白的痛点。
