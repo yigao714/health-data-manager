@@ -458,6 +458,10 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
         .data-table .action-btn { padding: 4px 10px; border-radius: 6px; border: none; cursor: pointer;
             font-size: 11px; background: rgba(248,113,113,0.1); color: var(--red); }
         .data-table .action-btn:hover { background: rgba(248,113,113,0.2); }
+        .data-table .action-btn + .action-btn { margin-left: 4px; }
+        .data-table .edit-inp { padding: 3px 5px; border-radius: 5px; border: 1px solid var(--border);
+            background: var(--bg2, rgba(255,255,255,0.04)); color: var(--text); font-size: 12px; text-align: center; }
+        .data-table .edit-inp:focus { outline: none; border-color: var(--purple); }
 
         /* Header */
         .page-header { text-align: center; padding: 32px 0 16px; }
@@ -591,6 +595,34 @@ MAIN_PAGE_HTML = """<!DOCTYPE html>
                 </div>
                 <div class="import-log" id="hw-import-log"></div>
                 <div class="import-summary" id="hw-import-summary" style="display:none;"></div>
+            </div>
+        </div>
+
+        <!-- 外部 CSV 数据导入 -->
+        <div class="card huawei-import-card" style="margin-top: 24px;">
+            <div class="card-title">📄 外部 CSV 数据导入</div>
+            <p style="color:var(--text2); font-size:13px; line-height:1.7; margin-bottom:16px;">
+                上传其他设备/App 导出的健康数据 <code>.csv</code> 文件（支持 UTF-8 / GBK 编码）。系统按<strong>列名自动识别</strong>步数、距离、心率、血氧、睡眠等字段（不依赖列顺序），如实导入真实数据并增量合并；识别不出的列会列出供你核对，绝不乱填或丢弃。
+            </p>
+            <div class="import-row">
+                <div class="form-group">
+                    <label class="form-label">选择 CSV 文件</label>
+                    <input class="form-input" type="file" id="csv-input" accept=".csv">
+                </div>
+                <button class="btn btn-primary" id="btn-import-csv" onclick="importCsv()" style="height:42px;">
+                    🚀 开始导入
+                </button>
+            </div>
+            <div class="import-progress" id="csv-import-progress">
+                <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text2);">
+                    <span id="csv-progress-text">准备中…</span>
+                    <span id="csv-progress-pct">0%</span>
+                </div>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" id="csv-progress-bar"></div>
+                </div>
+                <div class="import-log" id="csv-import-log"></div>
+                <div class="import-summary" id="csv-import-summary" style="display:none;"></div>
             </div>
         </div>
     </div>
@@ -1148,12 +1180,58 @@ function updateBMI() {
 }
 
 // ══════════ DATA TABLE ══════════
+let __records = [];   // 当前人员记录缓存，供内联编辑取值
+
+function _fmtCell(v, suffix) {
+    return (v === null || v === undefined || v === '') ? '-' : (v + (suffix || ''));
+}
+
+function _normalRowHtml(r) {
+    return `
+        <td style="font-weight:600;color:var(--blue)">${r.date}</td>
+        <td>${r.steps?.toLocaleString() ?? '-'}</td>
+        <td>${_fmtCell(r.distance_km, ' km')}</td>
+        <td>${(r.heart_rate_min ?? '-')}-${(r.heart_rate_max ?? '-')}</td>
+        <td>${r.resting_heart_rate ?? '-'}</td>
+        <td>${(r.spo2_min ?? '-')}%-${(r.spo2_max ?? '-')}%</td>
+        <td>${r.sleep_hours != null ? r.sleep_hours.toFixed(1) + 'h' : '-'}</td>
+        <td>${r.sleep_start ?? '-'}</td>
+        <td>${r.sleep_end ?? '-'}</td>
+        <td>${r.sleep_score ?? '-'}</td>
+        <td>
+            <button class="action-btn" style="background:rgba(99,102,241,0.12);color:var(--purple)" onclick="editRow('${r.date}')">✏️ 编辑</button>
+            <button class="action-btn" onclick="deleteRecord('${r.date}')">删除</button>
+        </td>`;
+}
+
+function _num(v) { return (v === null || v === undefined) ? '' : v; }
+
+function _editRowHtml(r) {
+    const inp = (f, val, w, step) =>
+        `<input class="edit-inp" data-field="${f}" value="${_num(val)}" type="${step!==undefined?'number':'text'}"${step?` step="${step}"`:''} style="width:${w||52}px">`;
+    return `
+        <td style="font-weight:600;color:var(--blue)">${r.date}</td>
+        <td>${inp('steps', r.steps, 64, '1')}</td>
+        <td>${inp('distance_km', r.distance_km, 60, '0.01')} km</td>
+        <td>${inp('heart_rate_min', r.heart_rate_min, 44, '1')}-${inp('heart_rate_max', r.heart_rate_max, 44, '1')}</td>
+        <td>${inp('resting_heart_rate', r.resting_heart_rate, 48, '1')}</td>
+        <td>${inp('spo2_min', r.spo2_min, 44, '1')}%-${inp('spo2_max', r.spo2_max, 44, '1')}%</td>
+        <td>${inp('sleep_hours', r.sleep_hours, 52, '0.1')}h</td>
+        <td>${inp('sleep_start', r.sleep_start, 56)}</td>
+        <td>${inp('sleep_end', r.sleep_end, 56)}</td>
+        <td>${inp('sleep_score', r.sleep_score, 48, '1')}</td>
+        <td style="white-space:nowrap">
+            <button class="action-btn" style="background:rgba(52,211,153,0.15);color:var(--green)" onclick="saveRow('${r.date}')">💾 保存</button>
+            <button class="action-btn" style="background:rgba(148,163,184,0.15);color:var(--text2)" onclick="loadDataTable()">取消</button>
+        </td>`;
+}
+
 async function loadDataTable() {
     try {
         if (!currentPerson) return;
         const resp = await fetch('/api/records?person=' + encodeURIComponent(currentPerson));
-        const records = await resp.json();
-        if (!records.length) {
+        __records = await resp.json();
+        if (!__records.length) {
             document.getElementById('data-table-container').innerHTML = '<p style="color:var(--muted)">暂无数据</p>';
             return;
         }
@@ -1161,24 +1239,42 @@ async function loadDataTable() {
             <th>日期</th><th>步数</th><th>距离</th><th>心率</th><th>静息HR</th>
             <th>血氧</th><th>睡眠</th><th>入睡</th><th>醒来</th><th>分数</th><th>操作</th>
         </tr></thead><tbody>`;
-        records.forEach(r => {
-            html += `<tr>
-                <td style="font-weight:600;color:var(--blue)">${r.date}</td>
-                <td>${r.steps?.toLocaleString() ?? '-'}</td>
-                <td>${r.distance_km ?? '-'} km</td>
-                <td>${r.heart_rate_min}-${r.heart_rate_max}</td>
-                <td>${r.resting_heart_rate ?? '-'}</td>
-                <td>${r.spo2_min}%-${r.spo2_max}%</td>
-                <td>${r.sleep_hours?.toFixed(1) ?? '-'}h</td>
-                <td>${r.sleep_start ?? '-'}</td>
-                <td>${r.sleep_end ?? '-'}</td>
-                <td>${r.sleep_score ?? '-'}</td>
-                <td><button class="action-btn" onclick="deleteRecord('${r.date}')">删除</button></td>
-            </tr>`;
+        __records.forEach(r => {
+            html += `<tr id="dr-${r.date}">${_normalRowHtml(r)}</tr>`;
         });
         html += '</tbody></table>';
         document.getElementById('data-table-container').innerHTML = html;
     } catch(e) { console.error(e); }
+}
+
+function editRow(date) {
+    const r = __records.find(x => x.date === date);
+    const tr = document.getElementById('dr-' + date);
+    if (!r || !tr) return;
+    tr.innerHTML = _editRowHtml(r);
+}
+
+async function saveRow(date) {
+    const tr = document.getElementById('dr-' + date);
+    if (!tr) return;
+    const payload = {};
+    tr.querySelectorAll('.edit-inp').forEach(el => {
+        payload[el.dataset.field] = el.value.trim();
+    });
+    try {
+        const resp = await fetch('/api/records/' + date + '?person=' + encodeURIComponent(currentPerson), {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showToast('已保存 ' + date, 'success');
+            loadDataTable();
+        } else {
+            showToast('保存失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch(e) { showToast('网络错误: ' + e.message, 'error'); }
 }
 
 async function deleteRecord(date) {
@@ -1472,6 +1568,109 @@ async function importHuaweiZip() {
         showToast('✅ 华为备份导入成功: 新增 ' + (s.new_records || 0) + ' 天, 合并 ' + (s.merged_records || 0) + ' 天', 'success');
 
         // Reload data
+        loadDataTable();
+
+    } catch(e) {
+        addLog('✖ 网络错误: ' + e.message, 'log-err');
+        showToast('导入失败: ' + e.message, 'error');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '🚀 开始导入';
+}
+
+// ══════════ CSV IMPORT ══════════
+async function importCsv() {
+    const fileInput = document.getElementById('csv-input');
+    const file = fileInput.files[0];
+    if (!file) { showToast('请先选择 CSV 文件', 'error'); return; }
+    if (!currentPerson) { showToast('请先选择一个人员', 'error'); return; }
+
+    const btn = document.getElementById('btn-import-csv');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 导入中…';
+
+    const progressDiv = document.getElementById('csv-import-progress');
+    const logDiv = document.getElementById('csv-import-log');
+    const summaryDiv = document.getElementById('csv-import-summary');
+    const barEl = document.getElementById('csv-progress-bar');
+    const pctEl = document.getElementById('csv-progress-pct');
+    const txtEl = document.getElementById('csv-progress-text');
+
+    progressDiv.classList.add('show');
+    logDiv.innerHTML = '';
+    summaryDiv.style.display = 'none';
+    barEl.style.width = '10%'; pctEl.textContent = '10%';
+    txtEl.textContent = '正在上传并解析…';
+
+    function addLog(text, cls) {
+        const span = document.createElement('div');
+        span.className = cls || '';
+        span.textContent = text;
+        logDiv.appendChild(span);
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+    addLog('▶ 开始解析 ' + file.name + ' (' + (file.size / 1024).toFixed(1) + 'KB)…');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        barEl.style.width = '30%'; pctEl.textContent = '30%';
+        const resp = await fetch('/api/import-csv?person=' + encodeURIComponent(currentPerson), {
+            method: 'POST', body: formData
+        });
+        const data = await resp.json();
+        barEl.style.width = '90%'; pctEl.textContent = '90%';
+
+        if (data.error) {
+            addLog('✖ 错误: ' + data.error, 'log-err');
+            showToast('导入失败: ' + data.error, 'error');
+            btn.disabled = false;
+            btn.innerHTML = '🚀 开始导入';
+            return;
+        }
+
+        if (data.mapped_columns) {
+            data.mapped_columns.forEach(c => addLog('  ✓ 识别列: ' + c, 'log-ok'));
+        }
+        if (data.unmapped_columns && data.unmapped_columns.length) {
+            data.unmapped_columns.forEach(c => addLog('  ⏭ 未识别列(已跳过): ' + c, 'log-skip'));
+        }
+        if (data.suspicious && data.suspicious.length) {
+            data.suspicious.forEach(s => addLog('  ⚠ 可疑值: ' + s, 'log-err'));
+        }
+        if (data.merge_log) {
+            data.merge_log.forEach(m => {
+                const cls = m.startsWith('新增') ? 'log-ok' : m.startsWith('合并') ? 'log-skip' : '';
+                addLog('  ' + m, cls);
+            });
+        }
+
+        barEl.style.width = '100%'; pctEl.textContent = '100%';
+        txtEl.textContent = '导入完成！';
+
+        const s = data.summary || {};
+        const isOk = (s.errors || 0) === 0;
+        summaryDiv.style.display = 'block';
+        summaryDiv.className = 'import-summary ' + (isOk ? 'ok' : 'partial');
+        const suspCount = (data.suspicious || []).length;
+        summaryDiv.innerHTML = `
+            <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${isOk ? 'var(--green)' : 'var(--orange)'}">
+                ${isOk ? '✅ 导入成功' : '⚠️ 部分导入成功'}
+            </div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.8;">
+                📊 新增 <b style="color:var(--green)">${s.new_records || 0}</b> 天数据，
+                合并更新 <b style="color:var(--cyan)">${s.merged_records || 0}</b> 天数据，
+                日期范围: <b>${s.date_range || '—'}</b><br>
+                🔗 识别 <b>${(data.mapped_columns || []).length}</b> 列，
+                未识别 <b>${(data.unmapped_columns || []).length}</b> 列，
+                跳过 <b>${s.skipped_rows || 0}</b> 行
+                ${suspCount > 0 ? '<br>⚠️ <b style="color:var(--orange)">' + suspCount + '</b> 处可疑值，请到「数据管理/数据体检」核对' : ''}
+                ${(s.errors || 0) > 0 ? '<br>⚠️ <b style="color:var(--red)">' + s.errors + '</b> 行出错' : ''}
+            </div>`;
+
+        showToast('✅ CSV 导入成功: 新增 ' + (s.new_records || 0) + ' 天, 合并 ' + (s.merged_records || 0) + ' 天', 'success');
         loadDataTable();
 
     } catch(e) {
@@ -1856,6 +2055,65 @@ def api_get_records():
     return jsonify([r.model_dump() for r in store.records])
 
 
+@app.route("/api/records/<date>", methods=["PUT"])
+def api_update_record(date):
+    """编辑指定日期记录的若干字段。
+
+    仅更新请求体中给出的字段（其余字段——含未在表格展示的睡眠分期等——保持不动）；
+    空字符串表示清空该字段为 None（空缺合法，不漏不添）；
+    保存前走医学/物理硬拦截，挡下不可能值。
+    """
+    from health_data_schema import check_physiological_ranges
+
+    person_id = request.args.get("person", "").strip()
+    if not person_id:
+        return jsonify({"error": "缺少 person 参数"}), 400
+
+    body = request.get_json(silent=True) or {}
+
+    # 仅允许编辑这些已在数据表展示的字段，避免误改内部字段
+    editable = {
+        "steps", "distance_km", "heart_rate_min", "heart_rate_max",
+        "resting_heart_rate", "spo2_min", "spo2_max",
+        "sleep_hours", "sleep_start", "sleep_end", "sleep_score",
+    }
+
+    try:
+        store = load_store(person_id)
+        idx = next((i for i, r in enumerate(store.records) if r.date == date), None)
+        if idx is None:
+            return jsonify({"error": f"未找到 {date} 的记录"}), 404
+
+        merged = store.records[idx].model_dump()
+        for k, v in body.items():
+            if k not in editable:
+                continue
+            # 空字符串/None → 清空为 None（缺失合法）
+            if v is None or (isinstance(v, str) and v.strip() == ""):
+                merged[k] = None
+            else:
+                merged[k] = v
+
+        # 校验类型（Pydantic 清洗/转换）
+        try:
+            new_record = DailyHealthData.model_validate(merged)
+        except Exception as e:
+            return jsonify({"error": f"数据格式有误: {e}"}), 400
+
+        # 硬拦截：医学/物理上不可能的值
+        errs = check_physiological_ranges(new_record)
+        if errs:
+            return jsonify({"error": "存在不可能的数值，未保存：\n• " + "\n• ".join(errs)}), 400
+
+        store.records[idx] = new_record
+        store.last_updated = datetime.now().isoformat()
+        save_store(store, person_id)
+        regenerate_dashboard(store, person_id)
+        return jsonify({"success": True, "record": new_record.model_dump()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/records/<date>", methods=["DELETE"])
 def api_delete_record(date):
     """删除指定日期的记录"""
@@ -2170,6 +2428,266 @@ def api_export_csv():
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname_out)}"
         }
     )
+
+
+# ══════════════════════════════════════════════════════════════
+# CSV 数据导入（外部设备/App 导出的健康 CSV）
+# ══════════════════════════════════════════════════════════════
+
+# 列名别名表：归一化后的表头 → 系统字段（或特殊处理标记）
+# 设计：靠语义识别列，不依赖列顺序；未来数据列更多/顺序不同也能认。
+_CSV_HEADER_ALIASES = {
+    # 日期
+    "测量日期": "date", "日期": "date", "记录日期": "date", "时间": "date",
+    "date": "date", "time": "date", "day": "date",
+    # 距离
+    "运动距离": "distance_km", "距离": "distance_km", "里程": "distance_km",
+    "distance": "distance_km",
+    # 步数
+    "步数": "steps", "步行数": "steps", "steps": "steps", "stepcount": "steps",
+    # 睡眠时长（注意源文件表头有"时常"错别字，一并兼容）
+    "总睡眠时常": "sleep_hours", "总睡眠时长": "sleep_hours",
+    "睡眠时长": "sleep_hours", "睡眠时常": "sleep_hours", "睡眠": "sleep_hours",
+    "sleep": "sleep_hours", "sleephours": "sleep_hours",
+    # 静息心率
+    "静息心率": "resting_heart_rate", "静息": "resting_heart_rate",
+    "restingheartrate": "resting_heart_rate", "rhr": "resting_heart_rate",
+    # 平均心率
+    "平均心率": "avg_heart_rate", "avgheartrate": "avg_heart_rate",
+    # 心率区间（特殊：拆成 min/max）
+    "心率区间": "__hr_range__", "心率范围": "__hr_range__", "心率": "__hr_range__",
+    "heartrate": "__hr_range__", "hr": "__hr_range__",
+    # 心率最低/最高（若未来单列给出）
+    "心率最低": "heart_rate_min", "最低心率": "heart_rate_min",
+    "心率最高": "heart_rate_max", "最高心率": "heart_rate_max",
+    # 血氧
+    "血氧最低值": "spo2_min", "血氧最低": "spo2_min", "最低血氧": "spo2_min",
+    "血氧最高值": "spo2_max", "血氧最高": "spo2_max", "最高血氧": "spo2_max",
+    "平均血氧": "spo2_avg", "血氧平均值": "spo2_avg",
+    # 热量 / 锻炼时长 / 睡眠分数（未来列可能出现）
+    "消耗热量": "calories", "热量": "calories", "卡路里": "calories",
+    "锻炼时长": "exercise_minutes", "运动时长": "exercise_minutes",
+    "睡眠分数": "sleep_score", "睡眠评分": "sleep_score",
+}
+
+
+def _normalize_csv_header(h: str) -> str:
+    """归一化 CSV 表头：去除括号及其中单位、空格、百分号，转小写。
+    例：'血氧最低值（%）' → '血氧最低值'，'心率区间(次/分)' → '心率区间'。
+    """
+    import re
+    s = (h or "").strip()
+    s = re.sub(r"[（(].*?[)）]", "", s)   # 去掉中英文括号及内部单位
+    s = s.replace("%", "").replace(" ", "").replace("　", "")
+    return s.lower()
+
+
+def _parse_csv_date(s: str):
+    """将多种日期格式统一为 YYYY-MM-DD；无法解析返回 None。
+    支持 M/D/YYYY、YYYY-MM-DD、YYYY/M/D 等；对 a/b/YYYY 用 a>12 判定日/月。
+    """
+    s = (s or "").strip()
+    if not s:
+        return None
+    # 已是 ISO
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    # a/b/YYYY 或 a-b-YYYY：末段是 4 位年
+    import re
+    m = re.match(r"^\s*(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s*$", s)
+    if m:
+        a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        # a>12 必为日，否则按 月/日（匹配本数据 M/D/YYYY 导出习惯）
+        month, day = (b, a) if a > 12 else (a, b)
+        try:
+            return datetime(y, month, day).strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_csv_health(text: str):
+    """解析外部健康 CSV 文本。
+
+    返回 (daily_records, report)：
+      daily_records: {date_str: {field: value}}（CSV 内重复日期按后值覆盖聚合）
+      report: {mapped: [...], unmapped: [...], skipped_rows: int, suspicious: [...]}
+    """
+    import csv as _csv
+    import io as _io
+
+    rows = list(_csv.reader(_io.StringIO(text)))
+    rows = [r for r in rows if any((c or "").strip() for c in r)]
+    if not rows:
+        return {}, {"mapped": [], "unmapped": [], "skipped_rows": 0, "suspicious": []}
+
+    header = rows[0]
+    # 列索引 → 目标字段（或 __hr_range__）
+    col_map = {}
+    mapped, unmapped = [], []
+    for idx, raw_h in enumerate(header):
+        norm = _normalize_csv_header(raw_h)
+        target = _CSV_HEADER_ALIASES.get(norm)
+        if target:
+            col_map[idx] = target
+            mapped.append(f"{raw_h} → {target}")
+        elif raw_h.strip():
+            unmapped.append(raw_h.strip())
+
+    daily = {}
+    skipped_rows = 0
+    suspicious = []
+
+    for r in rows[1:]:
+        # 找日期列
+        date_str = None
+        for idx, target in col_map.items():
+            if target == "date" and idx < len(r):
+                date_str = _parse_csv_date(r[idx])
+                break
+        if not date_str:
+            skipped_rows += 1
+            continue
+
+        fields = daily.setdefault(date_str, {})
+        for idx, target in col_map.items():
+            if target == "date" or idx >= len(r):
+                continue
+            val = (r[idx] or "").strip()
+            if not val:
+                continue
+            if target == "__hr_range__":
+                # "51-92" / "51~92" / "51－92" → min/max
+                import re
+                mm = re.match(r"^\s*(\d{2,3})\s*[-~～－]\s*(\d{2,3})\s*$", val)
+                if mm:
+                    fields["heart_rate_min"] = mm.group(1)   # 后值覆盖
+                    fields["heart_rate_max"] = mm.group(2)
+                continue
+            fields[target] = val   # CSV 内重复日期：后值覆盖
+
+    # 可疑值标记（如实导入但提示核对）：单日距离过大
+    for d, f in daily.items():
+        dist = f.get("distance_km")
+        try:
+            if dist is not None and float(dist) > 30:
+                suspicious.append(f"{d}: 运动距离 {dist} 千米，单日偏大，请核对")
+        except (ValueError, TypeError):
+            pass
+
+    return daily, {
+        "mapped": mapped, "unmapped": unmapped,
+        "skipped_rows": skipped_rows, "suspicious": suspicious,
+    }
+
+
+@app.route("/api/import-csv", methods=["POST"])
+def api_import_csv():
+    """导入外部设备/App 导出的健康 CSV，增量合并到指定人员。
+
+    按列名别名识别字段（不依赖列顺序），如实导入真实数据；
+    CSV 内重复日期按后值覆盖聚合，并入库时仅填补已有记录的空字段（不覆盖、不漏不添）。
+    """
+    person_id = request.args.get("person", "").strip()
+    if not person_id:
+        return jsonify({"error": "缺少 person 参数"}), 400
+    if "file" not in request.files:
+        return jsonify({"error": "未收到文件"}), 400
+
+    file = request.files["file"]
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        return jsonify({"error": "请上传 .csv 格式的文件"}), 400
+
+    # ── 读取并探测编码（GBK / UTF-8-SIG / UTF-8）──
+    raw = file.read()
+    text = None
+    for enc in ("utf-8-sig", "gbk", "utf-8"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        return jsonify({"error": "无法识别文件编码，请确保是常见的 CSV（UTF-8 或 GBK）"}), 400
+
+    try:
+        daily, report = _parse_csv_health(text)
+    except Exception as e:
+        return jsonify({"error": f"解析 CSV 失败: {e}"}), 400
+
+    if not report["mapped"]:
+        return jsonify({"error": "未能从表头识别出任何已知字段，请确认这是健康数据 CSV。"}), 400
+    if not daily:
+        return jsonify({"error": "未能从 CSV 中解析到有效的按日健康数据（可能缺少可识别的日期列）。"}), 400
+
+    # ── 合并入 HealthDataStore（仅填补空字段，不覆盖已有）──
+    store = load_store(person_id)
+    merge_log = []
+    new_count = 0
+    merged_count = 0
+    error_rows = []
+
+    for date_str in sorted(daily.keys()):
+        fields = dict(daily[date_str])
+        fields["date"] = date_str
+        try:
+            record = DailyHealthData.model_validate(fields)
+        except Exception as e:
+            error_rows.append(f"{date_str}: {e}")
+            continue
+
+        existing_idx = None
+        for i, existing in enumerate(store.records):
+            if existing.date == date_str:
+                existing_idx = i
+                break
+
+        if existing_idx is not None:
+            old = store.records[existing_idx]
+            old_dict = old.model_dump()
+            updated = False
+            for k, v in record.model_dump().items():
+                if k == "date":
+                    continue
+                if v is not None and old_dict.get(k) is None:
+                    old_dict[k] = v
+                    updated = True
+            if updated:
+                store.records[existing_idx] = DailyHealthData.model_validate(old_dict)
+                merged_count += 1
+                merge_log.append(f"合并补全 {date_str}")
+            else:
+                merge_log.append(f"跳过 {date_str}（已有完整数据）")
+        else:
+            store.records.append(record)
+            new_count += 1
+            merge_log.append(f"新增 {date_str}")
+
+    store.records.sort(key=lambda r: r.date)
+    store.last_updated = datetime.now().isoformat()
+    save_store(store, person_id)
+    regenerate_dashboard(store, person_id)
+
+    dates = sorted(daily.keys())
+    date_range = f"{dates[0]} ~ {dates[-1]}" if dates else "—"
+
+    return jsonify({
+        "success": True,
+        "mapped_columns": report["mapped"],
+        "unmapped_columns": report["unmapped"],
+        "suspicious": report["suspicious"],
+        "merge_log": merge_log,
+        "summary": {
+            "new_records": new_count,
+            "merged_records": merged_count,
+            "skipped_rows": report["skipped_rows"],
+            "errors": len(error_rows),
+            "date_range": date_range,
+        }
+    })
 
 
 @app.route("/api/restore", methods=["POST"])
